@@ -11,11 +11,15 @@ name = "agentic-code-search-oss"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "datasets" },
     { name = "verifiers" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "verifiers", specifier = ">=0.1.6.post0" }]
+requires-dist = [
+    { name = "datasets", specifier = ">=4.2.0" },
+    { name = "verifiers", specifier = ">=0.1.6.post0" },
+]
 
 [[package]]
 name = "aiohappyeyeballs"
