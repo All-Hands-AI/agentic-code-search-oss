@@ -80,3 +80,8 @@ This is a community-driven project.
 - **Datasets:**
   - [CodeSearchNet](https://github.com/github/CodeSearchNet)
   - [SWE-Fixer-Train-110K](https://huggingface.co/datasets/internlm/SWE-Fixer-Train-110K)
+- **Training Parallel Tool Calling:**
+  - [SWE-Grep](https://cognition.ai/blog/swe-grep): Forcing parallel tool calling during training (8 tools in parallel per step)
+  - [LLMCompiler](https://arxiv.org/abs/2405.17438): Using a "compiler" idea to orchestrate parallel tool calling during training; could be an overall kill for just searching tasks.
+  - [Divide-Then-Aggregate](https://aclanthology.org/2025.acl-long.1401.pdf): Another similar training method for parallel tool calling.
+  - Overall, this space is relatively unexplored.
