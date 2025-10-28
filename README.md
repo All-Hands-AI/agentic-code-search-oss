@@ -7,7 +7,7 @@ An open-source implementation of a low-latency agent for code localization.
 
 ## 0. Running the agent
 
-Clone a repo and provide its path to the agent in (agent/minimal_agent.py) along with the task (find relevant code for 'X'). 
+Install vLLM. Clone a repo and provide its path to the agent in (agent/minimal_agent.py) along with the task (find relevant code for 'X'). 
 
 ## 1. Problem Statement
 
