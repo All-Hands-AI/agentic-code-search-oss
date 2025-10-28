@@ -84,4 +84,9 @@ This is a community-driven project.
   - [SWE-Grep](https://cognition.ai/blog/swe-grep): Forcing parallel tool calling during training (8 tools in parallel per step)
   - [LLMCompiler](https://arxiv.org/abs/2405.17438): Using a "compiler" idea to orchestrate parallel tool calling during training; could be an overall kill for just searching tasks.
   - [Divide-Then-Aggregate](https://aclanthology.org/2025.acl-long.1401.pdf): Another similar training method for parallel tool calling.
+  - [KAT](https://skywork.ai/blog/kat-models-parallel-tool-calling-ai-coding-agents/): Some good practices for parallel tool calling.
   - Overall, this space is relatively unexplored.
+  - Finally, this parallel tool calling thing is related to the idea of "multi-agent" framework:
+    - [M1-Parallel](https://arxiv.org/abs/2507.08944): runs multiple multi-agent teams in parallel
+    - [ToolFlow](https://arxiv.org/abs/2410.18447): multiple agents to synthesize the training data
+
