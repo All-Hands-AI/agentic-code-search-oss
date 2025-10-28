@@ -5,7 +5,6 @@ from pathlib import Path
 from pydantic import SecretStr
 
 from openhands.tools.preset.planning import get_planning_tools
-from openhands.tools.preset.default import get_default_agent
 from openhands.sdk import (
     LLM,
     Agent,
@@ -17,23 +16,6 @@ from src.prompts.prompt_builder import get_instruction
 from src.utils.instance import clone_instance
 
 logger = get_logger(__name__)
-
-
-def f1_reward_function(predicted_files, true_files):
-    pred, true = set(predicted_files), set(true_files)
-    tp = len(pred & true)
-    precision = tp / len(pred) if pred else 0.0
-    recall = tp / len(true) if true else 0.0
-    if not pred and not true:
-        return 1.0
-    return 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
-
-def reward_function(final_message, instance):
-    predicted_files = set(ast.literal_eval(final_message.split("<file-list>")[1].split("</file-list>")[0]))
-    print("Predicted files:", predicted_files)
-    true_files = set(x[0] for x in ast.literal_eval(instance["target"]))
-    print("True files:", true_files)
-    return f1_reward_function(predicted_files, true_files)
 
 def test_single_prompt(instance, working_dir) -> None:
     api_key = os.getenv("LLM_KEY")
@@ -49,17 +31,16 @@ def test_single_prompt(instance, working_dir) -> None:
         api_key=SecretStr(api_key),
     )
 
-    # agent = Agent(
-    #     llm=llm,
-    #     #tools=get_planning_tools()[:-1],
-    #     cli_mode=False,
-    #     #system_prompt_filename="search.j2",
-    # )
-    agent = get_default_agent(llm, cli_mode=True)
+    agent = Agent(
+        llm=llm,
+        tools=get_planning_tools()[:-1],
+        cli_mode=False,
+        system_prompt_filename="search.j2",
+    )
 
     conversation = Conversation(
         agent=agent,
-        max_iteration_per_run=30,
+        max_iteration_per_run=10,
         visualize=True,
         workspace=str(working_dir),
     )
@@ -85,9 +66,6 @@ def test_single_prompt(instance, working_dir) -> None:
     with open(f"train_traj_{instance_id}.jsonl", "w") as f:
         f.writelines(json.dumps(msg) + "\n" for msg in messages)
 
-    final_message = conversation.agent_final_response()
-    print("Final Reward:", reward_function(final_message, instance))
-
     return 0
 
 if __name__ == "__main__":
@@ -95,7 +73,7 @@ if __name__ == "__main__":
 
     # Build with `uv run src/build_dataset.py --output data/`
     dataset = pd.read_parquet("data/SWE-Gym__SWE-Gym_train/train.parquet")
-    instance = dataset.iloc[1000].to_dict()
+    instance = dataset.iloc[0].to_dict()
     target_files = ast.literal_eval(instance["target"])
     print("#" * 100)
     print("Target files:", target_files)
