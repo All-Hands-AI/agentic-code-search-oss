@@ -8,7 +8,6 @@ from openhands.tools.preset.planning import get_planning_tools
 from openhands.tools.preset.default import get_default_agent
 from openhands.sdk import (
     LLM,
-    Agent,
     Conversation,
     get_logger,
 )
@@ -49,12 +48,6 @@ def test_single_prompt(instance, working_dir) -> None:
         api_key=SecretStr(api_key),
     )
 
-    # agent = Agent(
-    #     llm=llm,
-    #     #tools=get_planning_tools()[:-1],
-    #     cli_mode=False,
-    #     #system_prompt_filename="search.j2",
-    # )
     agent = get_default_agent(llm, cli_mode=True)
 
     conversation = Conversation(
@@ -63,8 +56,8 @@ def test_single_prompt(instance, working_dir) -> None:
         visualize=True,
         workspace=str(working_dir),
     )
-
-    input_message = get_instruction(instance, None, str(working_dir))
+    prompt_path = os.path.join(os.path.dirname(__file__), "..", "src", "prompts", "templates", "file_localization.j2")
+    input_message = get_instruction(instance, prompt_path, str(working_dir))
     conversation.send_message(input_message)
     print("Starting conversation...")
     try:
@@ -99,12 +92,12 @@ if __name__ == "__main__":
     target_files = ast.literal_eval(instance["target"])
     print("#" * 100)
     print("Target files:", target_files)
-    workspace = "testbed/"
+    workspace = Path("testbed/")
     instance_id = instance["instance_id"]
     repo_name = instance["repo"]
     commit_id = instance["base_commit"]
 
-    status, working_dir = clone_instance(repo_name, commit_id, instance_id, Path("testbed/"))
+    status, working_dir = clone_instance(repo_name, commit_id, instance_id, workspace)
     print("working_dir:", working_dir)
     try:
         status = test_single_prompt(instance, working_dir)
