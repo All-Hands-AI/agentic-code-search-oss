@@ -5,6 +5,10 @@ An open-source implementation of a low-latency agent for code localization.
 - **Repository:** `https://github.com/All-Hands-AI/agentic-code-search-oss`
 - **Slack:** `#agentic-code-search-oss` (All-Hands-AI workspace)
 
+## 0. Running the agent
+
+Clone a repo and provide its path to the agent in (agent/minimal_agent.py) along with the task (find relevant code for 'X'). 
+
 ## 1. Problem Statement
 
 LLM-based coding agents are bottlenecked by context retrieval. They are often slow and inefficient at finding the correct files and code snippets to edit in a large repository. This project builds a small, fast, specialized agent to solve the **code localization** problem.
