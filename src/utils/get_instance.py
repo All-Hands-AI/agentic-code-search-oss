@@ -150,7 +150,7 @@ def main():
             print("✗ Path does not exist")
             print("\nTo clone this instance, run:")
             cmd = (
-                f"  python clone_swebench_repos.py --max-instances 1 "
+                f"  python scripts/clone_repos.py --max-instances 1 "
                 f'--dataset "{args.dataset}"'
             )
             print(cmd)
