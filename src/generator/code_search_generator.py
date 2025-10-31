@@ -66,7 +66,7 @@ def init_and_run(
     instance_id = instance["instance_id"]
     repo_name = instance["repo"]
     commit_id = instance["base_commit"]
-
+    workspace = Path("testbed/")
     status, working_dir = clone_instance(repo_name, commit_id, instance_id, workspace)
     print("working_dir:", working_dir)
     working_dir = Path.cwd() / working_dir
@@ -153,7 +153,7 @@ def init_and_run(
         processed_messages.append({"role": role, "content": full_text})
 
     print("Evaluation result:", reward)
-    return (messages, reward, error)
+    return (processed_messages, reward, error)
 
 
 class CodeSearchGenerator(SkyRLGymGenerator):
@@ -215,10 +215,7 @@ class CodeSearchGenerator(SkyRLGymGenerator):
         )
         # TODO Properly handle the right system prompt.
         
-        print(len(messages), "messages received from openhands agent loop")
-        input_prompt = messages[:2]
-        processed_messages = messages[2:]
-
+        input_prompt = messages[0]
         initial_input_ids = self.tokenizer.apply_chat_template(
             input_prompt, add_generation_prompt=False, tokenize=True
         )
@@ -232,7 +229,7 @@ class CodeSearchGenerator(SkyRLGymGenerator):
         # for i, message in enumerate(processed_messages):
         #     print(f"Message {i}: {str(message)[:200]}")
 
-        for message in processed_messages:
+        for message in messages:
             # Apply chat template and tokenize each message
             msg_encoding = encode_messages_subset([message], self.tokenizer)
 
