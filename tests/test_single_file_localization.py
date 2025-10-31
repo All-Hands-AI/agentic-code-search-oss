@@ -99,6 +99,7 @@ if __name__ == "__main__":
 
     status, working_dir = clone_instance(repo_name, commit_id, instance_id, workspace)
     print("working_dir:", working_dir)
+    working_dir = Path.cwd() / working_dir
     try:
         status = test_single_prompt(instance, working_dir)
     except Exception as e:
