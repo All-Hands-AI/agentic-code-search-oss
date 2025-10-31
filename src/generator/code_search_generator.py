@@ -50,25 +50,6 @@ logger = get_logger(__name__)
 # logger.setLevel(logging.WARNING)
 logger.setLevel(logging.ERROR)
 
-public_ip = requests.get("https://api.ipify.org").text
-print(f"Public IP: {public_ip}")
-
-# timeout 3600 seconds
-@contextmanager
-def timeout(seconds):
-    def timeout_handler(signum, frame):
-        raise TimeoutError(f"Operation timed out after {seconds} seconds")
-
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(seconds)
-    try:
-        yield
-    finally:
-        signal.alarm(0)
-
-
-
-
 @ray.remote(num_cpus=0.01)
 def init_and_run(
     instance: dict,
@@ -90,7 +71,6 @@ def init_and_run(
     print("working_dir:", working_dir)
     working_dir = Path.cwd() / working_dir
 
-
     agent = None
     result = None
     patch = ""
@@ -107,8 +87,7 @@ def init_and_run(
         llm=LLM(
             service_id="agent",
             model=litellm_model_name,
-            # base_url="http://host.docker.internal:8080/v1/",
-            base_url=f"http://{public_ip}:8080/v1/",
+            base_url=f"http://localhost:8080/v1/",
             api_key=os.getenv("API_KEY"),
         ),
         cli_mode=True,
@@ -134,6 +113,9 @@ def init_and_run(
         conversation.close()
         logger.info("Conversation Finished")
 
+    final_message = conversation.agent_final_response()
+
+    # Do reward here
 
     processed_messages = [
         # system_messages,
@@ -169,14 +151,6 @@ def init_and_run(
             continue
 
         processed_messages.append({"role": role, "content": full_text})
-
-    # with open(os.path.join(path, f"train_patch_{instance_id}_{trajectory_id.repetition_id}.diff"), "w") as f:
-    with open(f"/datadrive/lsutawik/rca/rca-reasoning-coding-agents/test_outputs/train_patch_{instance_id}_{trajectory_id.repetition_id}.diff", "w") as f:
-        f.write(patch)
-
-    # with open(os.path.join(path, f"train_traj_{instance_id}_{trajectory_id.repetition_id}.jsonl"), "w") as f:
-    with open(f"/datadrive/lsutawik/rca/rca-reasoning-coding-agents/test_outputs/train_traj_{instance_id}_{trajectory_id.repetition_id}.jsonl", "w") as f:
-        f.writelines(json.dumps(msg) + "\n" for msg in processed_messages)
 
     print("Evaluation result:", reward)
     return (messages, reward, error)
