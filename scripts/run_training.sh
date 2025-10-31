@@ -1,3 +1,15 @@
+#!/bin/bash
+#SBATCH --job-name=cso
+#SBATCH --output=logs/%j.out
+#SBATCH --error=logs/%j.out
+#SBATCH --partition=general
+#SBATCH --gres=gpu:L40S:8
+#SBATCH --nodes=1
+#SBATCH --time=2-00:00:00
+#SBATCH --mem=64G
+#SBATCH --cpus-per-task=32
+#SBATCH --ntasks-per-node=1
+
 . .env
 
 while getopts ":m:n:d:s:" opt; do
