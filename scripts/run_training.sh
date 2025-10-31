@@ -49,7 +49,7 @@ LOGGER=wandb
 
 # We use a small batch size here for demonstration
 # NOTE (sumanthrh): The `generator.max_turns` here is actually unused, and we use the `step_limit` from the `swebench.yaml` file. 
-uv run --isolated -m rca.train \
+uv run --isolated -m src.train \
   data.train_data="['$DATA_PATH/train.parquet']" \
   data.val_data="['$DATA_PATH/validation.parquet']" \
   trainer.algorithm.advantage_estimator="grpo" \
