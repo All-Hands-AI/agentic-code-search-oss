@@ -44,6 +44,7 @@ from openhands.sdk import (
 
 from src.prompts.prompt_builder import get_instruction
 from src.utils.instance import clone_instance
+from src.rewards.file_localization import file_localization_f1_reward
 import logging
 
 logger = get_logger(__name__)
@@ -153,6 +154,9 @@ def init_and_run(
         processed_messages.append({"role": role, "content": full_text})
 
     print("Evaluation result:", reward)
+
+
+    reward = file_localization_f1_reward(final_message, instance)
     return (processed_messages, reward, error)
 
 
