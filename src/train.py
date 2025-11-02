@@ -4,7 +4,7 @@ from skyrl_train.entrypoints.main_base import BasePPOExp, config_dir, validate_c
 from skyrl_train.utils import initialize_ray
 import ray
 
-from rca.generators.code_search_generator import CodeSearchGenerator
+from src.generator.code_search_generator import CodeSearchGenerator
 
 
 class CodeSearchPPOExp(BasePPOExp):

@@ -18,12 +18,27 @@ def main():
         lambda row: f"{extract_functions_from_patch(row["patch"])}", axis=1
     )
 
+    dataset["prompt"] = dataset.apply(
+        lambda row: [{"role": "user", "content": row["problem_statement"]}], axis=1
+    )
+
+    # shuffle dataset
+    dataset = dataset.sample(frac=1).reset_index(drop=True)
+
+    # Split 80-20 train-validation
+    train_size = int(0.8 * len(dataset))
+    train_dataset = dataset.iloc[:train_size]
+    validation_dataset = dataset.iloc[train_size:]
+
     # if output does not exist, create it
     output_dir = os.path.join(args.output, args.dataset.replace("/", "__") + "_" + args.split)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     output_path = os.path.join(output_dir, "train.parquet")
-    dataset.to_parquet(output_path)
-    
+    train_dataset.to_parquet(output_path)
+
+    output_path = os.path.join(output_dir, "validation.parquet")
+    validation_dataset.to_parquet(output_path)
+
 if __name__ == "__main__":
     main()

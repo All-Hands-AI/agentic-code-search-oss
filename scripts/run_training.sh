@@ -2,7 +2,7 @@
 #SBATCH --job-name=cso
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.out
-#SBATCH --partition=general
+#SBATCH --partition=preempt
 #SBATCH --gres=gpu:L40S:8
 #SBATCH --nodes=1
 #SBATCH --time=2-00:00:00
@@ -43,7 +43,7 @@ DATA_PATH="${DATA_PATH:-data/swe_smith}"
 CKPT_PATH="${CKPT_PATH:-ckpts/${MODEL_ALIAS}}"
 
 NNODES=1
-NUM_INFERENCE_ENGINES=4
+NUM_INFERENCE_ENGINES=8
 TP_SIZE=1
 LOGGER=wandb
 
