@@ -1,51 +1,85 @@
+[project]
+name = "rca"
+version = "0.0.1"
+authors = [
+    {name="Lintang Sutawika", email="lsutawik@andrew.cmu.edu"}
+]
+description = "Expectation-Maximization for Agentic Coders"
+readme = "README.md"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.12"
+license = { "text" = "MIT" }
+dependencies = [
+    "skyrl-train @ git+https://github.com/NovaSky-AI/SkyRL.git@main#subdirectory=skyrl-train",
+    "openhands-tools",
+    "unidiff>=0.7.5,<0.8.0",
+    "openhands-agent-server",
+    "openhands-workspace",
+    "mini-swe-agent>=1.12.0",
+    "swesmith>=0.0.7",
+    "swebench>=4.1.0",
+    "vllm",
+    "bashlex>=0.18",
+    "binaryornot>=0.4.4",
+    "cachetools",
+    "libtmux>=0.46.2",
+    "pydantic>=2.11.7",
+    "browser-use>=0.7.7",
+    "func-timeout>=4.3.5",
+    "logger>=1.4",
+    "ipython",
+    "fire>=0.7.1",
+]
+
+[project.scripts]
+validate-cfg = "benchmarks.scripts.validate_cfg:main"
+swebench-infer = "benchmarks.swe_bench.run_infer:main"
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rca", "agent-sdk"]
 
-[project]
-name = "agentic-code-search-oss"
-version = "0.1.0"
-description = "An open-source implementation of a low-latency agent for code localization."
-readme = "README.md"
-license = "MIT"
-requires-python = ">=3.13"
-dependencies = [
-    "skyrl-train @ git+https://github.com/NovaSky-AI/SkyRL.git@main#subdirectory=skyrl-train",
-    "openhands-tools",
-    "openhands-agent-server",
-    "openhands-workspace",
-    "vllm>=0.11.0",
-    "hydra-core>=1.3.2",
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+    "psutil>=7.0.0",
+    "pyright>=1.1.405",
+    "ruff>=0.12.10",
+    "pycodestyle>=2.12.0",
 ]
 
 [tool.uv]
 override-dependencies = [
     "flash-attn",
 ]
+extra-build-variables = { flash-attn = { FLASH_ATTENTION_SKIP_CUDA_BUILD = "TRUE" } }
 
-[dependency-groups]
-dev = [
-    "pytest>=8.4.2",
-]
 
-[tool.ruff]
-line-length = 100
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
-[tool.ruff.lint]
-select = ["E", "F", "I"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch"]
 
 [tool.uv.sources]
+flash-attn = {url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.7cxx11abiFALSE-cp312-cp312-linux_x86_64.whl"}
 openhands-sdk = { workspace = true }
 openhands-tools = { workspace = true }
 openhands-workspace = { workspace = true }
 openhands-agent-server = { workspace = true }
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 
 [tool.uv.workspace]
 members = [
