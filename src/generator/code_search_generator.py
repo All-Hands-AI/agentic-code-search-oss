@@ -29,7 +29,7 @@ from skyrl_train.generators.utils import (
 )
 from openhands.tools.preset.default import get_default_agent
 
-
+from openhands.sdk.conversation.response_utils import get_agent_final_response
 from openhands.workspace import DockerWorkspace
 from openhands.tools.preset.default import get_default_tools
 from openhands.sdk import (
@@ -51,6 +51,8 @@ logger = get_logger(__name__)
 # logger.setLevel(logging.WARNING)
 logger.setLevel(logging.ERROR)
 
+file_path = os.path.dirname(__file__)
+
 @ray.remote(num_cpus=0.01)
 def init_and_run(
     instance: dict,
@@ -67,41 +69,38 @@ def init_and_run(
     instance_id = instance["instance_id"]
     repo_name = instance["repo"]
     commit_id = instance["base_commit"]
-    workspace = Path("testbed/")
+    workspace = Path("/tmp/testbed/")
     status, working_dir = clone_instance(repo_name, commit_id, instance_id, workspace)
-    print("working_dir:", working_dir)
-    working_dir = Path.cwd() / working_dir
+
+    if training_phase == "eval":
+        temperature = 0.6
+    else:
+        temperature = 1.0
 
     agent = None
-    result = None
-    patch = ""
+    final_message = ""
     reward = 0
     error = None
-    eval_error = None
     messages = []
-    def conversation_callback(event: Event):
-        if isinstance(event, LLMConvertibleEvent):
-            messages.append(event.to_llm_message())
 
     agent = get_default_agent(
-        # llm=llm,
         llm=LLM(
             service_id="agent",
             model=litellm_model_name,
             base_url=f"http://localhost:8080/v1/",
             api_key=os.getenv("API_KEY"),
+            temperature=temperature,
         ),
         cli_mode=True,
     )
 
     conversation = Conversation(
         agent=agent,
-        max_iteration_per_run=30,
-        visualize=True,
+        max_iteration_per_run=4,
+        visualize=False,
         workspace=str(working_dir),
-        callbacks=[conversation_callback],
     )
-    prompt_path = os.path.join(os.path.dirname(__file__), "..", "src", "prompts", "templates", "file_localization.j2")
+    prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompts", "templates", "file_localization.j2")
     input_message = get_instruction(instance, prompt_path, str(working_dir))
     conversation.send_message(input_message)
     print("Starting conversation...")
@@ -114,50 +113,25 @@ def init_and_run(
         conversation.close()
         logger.info("Conversation Finished")
 
-    final_message = conversation.agent_final_response()
+        messages = list(map(lambda event: event.model_dump(), conversation.state.events))
+        final_message = get_agent_final_response(conversation.state.events)
 
-    # Do reward here
+        path = Path(generator_cfg.traj_dir) / f"step_{global_step}" / training_phase
+        path.mkdir(parents=True, exist_ok=True)
+        instance_id = instance["instance_id"]
+        filename = f"{instance_id}_{trajectory_id.repetition_id}.jsonl"
+        path = path / filename
 
-    processed_messages = [
-        # system_messages,
-        {"role": "user", "content": input_message},
-    ]
-    for idx, message in enumerate(messages):
-        full_text = ""
-        try:
-            if message.role == "assistant":
-                role = "assistant"
-                if len(message.content) != 0:
-                    full_text += message.content[0].text
-                if len(message.tool_calls) != 0:
-                    tool_name = message.tool_calls[0].name
-                    tool_args = ast.literal_eval(message.tool_calls[0].arguments)
-                    if tool_name == "finish":
-                        full_text += tool_args["message"]
-                        break
-                    else:
-                        full_text += "\n\n" + f"<function={tool_name}>"
-                        for k, v in tool_args.items():
-                            full_text += f"\n<parameter={k}>{v}</parameter>\n"
-                        full_text += "</function>\n"
-            elif message.role == "tool":
-                role = "user"
-                if len(message.content) != 0:
-                    full_text += message.content[0].text
-            else:
-                continue
-        except Exception as e:
-            # print("message", message)
-            logger.error(f"Error processing message {idx}: {e}", exc_info=True)
-            continue
+        print(f"Saving trajectory to {path}")
+        with open(path, "w") as f:
+            f.writelines(str(msg) + "\n" for msg in messages)
 
-        processed_messages.append({"role": role, "content": full_text})
+    try:
+        reward = file_localization_f1_reward(final_message, instance)
+    except Exception as e:
+        reward = 0.0
 
-    print("Evaluation result:", reward)
-
-
-    reward = file_localization_f1_reward(final_message, instance)
-    return (processed_messages, reward, error)
+    return (messages, reward, error)
 
 
 class CodeSearchGenerator(SkyRLGymGenerator):
@@ -204,63 +178,71 @@ class CodeSearchGenerator(SkyRLGymGenerator):
     ) -> Tuple[List[int], float, str, List[int], List[int], Optional[List[int]]]:
         # sweagent_config = yaml.safe_load(get_config_path(self.generator_cfg.miniswe_config_path).read_text())
         # NOTE (sumanthrh): Input `prompt` is not used here because mini-swe-agent uses a similar entry from the `instance` obj
-        instance = env_extras["instance"]
-        messages, reward, error = await init_and_run.remote(
-            env_extras["instance"],
-            self.litellm_model_name,
-            # sweagent_config,
-            self.base_url,
-            self.generator_cfg,
-            env_extras["data_source"],
-            sampling_params,
-            trajectory_id,
-            batch_metadata.global_step,
-            batch_metadata.training_phase,
-        )
-        # TODO Properly handle the right system prompt.
+        # instance = env_extras["instance"]
+        try:
+            messages, reward, error = await init_and_run.remote(
+                env_extras,
+                self.litellm_model_name,
+                # sweagent_config,
+                self.base_url,
+                self.generator_cfg,
+                # env_extras["data_source"],
+                "Swe-Gym",
+                sampling_params,
+                trajectory_id,
+                batch_metadata.global_step,
+                batch_metadata.training_phase,
+            )
+        except Exception as e:
+            # TODO properly handle this
+            reward = 0
+            messages = [{"kind": "TokenEvent", "prompt_tokens_ids": [151643], "response_token_ids": [151643]}]
+
+        print("=" * 100)
+        print("Conversation finished. Got the following LLM messages:")
+        for i, message in enumerate(messages):
+            print(f"Message {i}: {str(message)[:200]}")
+
+        messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
+
+        stop_reason = "complete"
+        prompt_ids_list = []
+        response_ids_list = []
+        loss_mask = []
+        initial_input_len = 0
+        past_trajectory_len = 0
+        for idx, message in enumerate(messages):
+            current_prompt_ids = message["prompt_tokens_ids"]
+            current_response_ids = message["response_token_ids"]
+
+            prompt_ids_list.append(current_prompt_ids)
+            response_ids_list.append(current_response_ids)
+
+            if idx == 0:
+                initial_input_ids = current_prompt_ids
+                initial_input_len = len(initial_input_ids)
+                # TODO properly handle max tokens
+                # max_response_tokens = max_tokens + max_input_length - initial_input_len
+
+            trajectory_ids = current_prompt_ids[initial_input_len:]
+            past_response_len = len(response_ids_list[idx-1]) if idx > 0 else 0
+            past_response_observation_ids = trajectory_ids[past_trajectory_len+past_response_len:]
+            past_response_observation_len = len(past_response_observation_ids)
+            loss_mask.extend([1] * past_response_len + [0] * past_response_observation_len)
+            past_trajectory_len = len(trajectory_ids)
+
+            # response_ids = trajectory_ids + current_response_ids
+            # if len(response_ids) >= max_response_tokens:
+            #     response_ids = response_ids[:max_response_tokens]
+            #     loss_mask.extend([1] * len(current_response_ids))
+            #     loss_mask = loss_mask[:max_response_tokens]
+            #     stop_reason = "length"
+            #     break
         
-        input_prompt = messages[0]
-        initial_input_ids = self.tokenizer.apply_chat_template(
-            input_prompt, add_generation_prompt=False, tokenize=True
-        )
-        initial_prompt_length = len(initial_input_ids)
+        response_ids = trajectory_ids + current_response_ids
+        loss_mask.extend([1] * len(current_response_ids))
 
-        response_ids: List[int] = []
-        loss_mask: List[int] = []
-
-        # print("=" * 100)
-        # print("Conversation finished. Got the following LLM messages:")
-        # for i, message in enumerate(processed_messages):
-        #     print(f"Message {i}: {str(message)[:200]}")
-
-        for message in messages:
-            # Apply chat template and tokenize each message
-            msg_encoding = encode_messages_subset([message], self.tokenizer)
-
-            # Extend response_ids with the tokens
-            response_ids.extend(msg_encoding)
-
-            # Extend loss_mask: 0s for user, 1s for assistant
-            if message["role"] in ["user", "tool"]:
-                loss_mask.extend([0] * len(msg_encoding))
-            else:  # assistant
-                loss_mask.extend([1] * len(msg_encoding))
-        # Extract prompt ids
-        prompt_ids = initial_input_ids
-
-        # Calculate maximum response tokens allowed
-        max_response_tokens = max_tokens + max_input_length - initial_prompt_length
-
-        # Determine stop reason
-        stop_reason = "complete"  # Default for trial completion
-        if len(response_ids) > max_response_tokens:
-            stop_reason = "length"
-
-        # Truncate to maximum allowed length
-        response_ids = response_ids[:max_response_tokens]
-        loss_mask = loss_mask[:max_response_tokens]
-
-        return (response_ids, reward, stop_reason, loss_mask, prompt_ids, None)
+        return (response_ids, reward, stop_reason, loss_mask, initial_input_ids, None)
 
     async def generate(self, input_batch: GeneratorInput) -> GeneratorOutput:
         """
