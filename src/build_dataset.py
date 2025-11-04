@@ -25,10 +25,9 @@ def main():
     # shuffle dataset
     dataset = dataset.sample(frac=1).reset_index(drop=True)
 
-    # Split 80-20 train-validation
-    train_size = int(0.8 * len(dataset))
-    train_dataset = dataset.iloc[:train_size]
-    validation_dataset = dataset.iloc[train_size:]
+    # train_size = int(0.975 * len(dataset))
+    train_dataset = dataset.iloc[:-100]
+    validation_dataset = dataset.iloc[-100:]
 
     # if output does not exist, create it
     output_dir = os.path.join(args.output, args.dataset.replace("/", "__") + "_" + args.split)
