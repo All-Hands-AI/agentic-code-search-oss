@@ -1,3 +1,4 @@
+import json
 import logging
 import verifiers as vf
 from datasets import load_dataset
@@ -6,6 +7,7 @@ import src.tools as tools
 import src.rewards as rewards
 from src.prompts.system_prompt import SYSTEM_PROMPT
 from src.utils.get_instance import get_instance_path
+from src.utils.tokenize import check_token_limit
 
 
 logger = logging.getLogger("swe-grep-oss")
@@ -18,15 +20,58 @@ class SWEGrepEnv(vf.StatefulToolEnv):
         self.add_tool(tools.bash, args_to_skip=["cwd"])
         self.add_tool(tools.result)
 
-    # async def is_completed(
-    #     self, messages: vf.types.Messages, state: vf.types.State, **kwargs
-    # ) -> bool:
-    #     max_turns_reached = await self.max_turns_reached(state)
-    #     prompt_too_long = await self.prompt_too_long(state)
-    #     if max_turns_reached or prompt_too_long:
-    #         return True
+    async def is_completed(
+        self, messages: vf.types.Messages, state: vf.types.State, **kwargs
+    ) -> bool:
+        max_turns_reached = await self.max_turns_reached(state)
+        prompt_too_long = await self.prompt_too_long(state)
+        
+        # Check if we've exceeded the token limit
+        max_tokens_exceeded = False
+        if isinstance(messages, list) and "info" in state and "max_tokens" in state["info"]:
+            try:
+                exceeded, current_count, max_allowed = await check_token_limit(
+                    messages=messages,
+                    max_tokens=state["info"]["max_tokens"],
+                    model=kwargs.get("model", "Qwen/Qwen3-8B"),
+                    base_url=kwargs.get("base_url", "http://localhost:8000"),
+                )
+                max_tokens_exceeded = exceeded
+                # self.logger.info(
+                #     f"Token count: {current_count}/{max_allowed} "
+                #     f"(exceeded: {exceeded})"
+                # )
+            except Exception as e:
+                self.logger.warning(f"Failed to check token limit: {e}")
+                # Fall back to default behavior if tokenization fails
+                pass
+        
+        if max_tokens_exceeded or max_turns_reached or prompt_too_long:
+            return True
 
-    #     return False
+        return False
+
+    async def env_response(
+        self, messages: vf.types.Messages, state: vf.types.State, **kwargs
+    ) -> tuple[vf.types.Messages, vf.types.State]:
+        assert isinstance(messages, list)
+
+        tool_calls = messages[-1].get("tool_calls", [])
+        tool_messages = []
+        for tool_call in tool_calls:
+            assert isinstance(tool_call, vf.types.ChatCompletionMessageToolCall)
+            tool_name: str = tool_call.function.name
+            tool_args: dict = json.loads(tool_call.function.arguments)
+            tool_call_id: str = tool_call.id or ""
+            tool_args = self.update_tool_args(
+                tool_name, tool_args, messages, state, **kwargs
+            )
+            tool_message: vf.types.Message = await self.call_tool(
+                tool_name, tool_args, tool_call_id
+            )
+            tool_messages.append(tool_message)
+        return tool_messages, state
+
 
     def update_tool_args(
         self,
@@ -50,7 +95,7 @@ class SWEGrepEnv(vf.StatefulToolEnv):
         return tool_args
 
 
-def load_environment(**kwargs):
+def load_environment(max_tokens: int = 40000, **kwargs):
     """Load and configure the environment."""
 
     # Load dataset
@@ -61,8 +106,9 @@ def load_environment(**kwargs):
             "info": {
                 "repo": row["repo"],
                 "instance_id": row["instance_id"],
+                "max_tokens": max_tokens,
             },
-            "prompt": [{"role": "user", "content": row["problem_statement"]}],
+            "prompt": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": row["problem_statement"]}],
             "answer": row["patch"],
         }
     )
@@ -81,8 +127,7 @@ def load_environment(**kwargs):
     # Load environment
     return SWEGrepEnv(
         dataset=dataset,
-        system_prompt=SYSTEM_PROMPT,
         rubric=rubric,
-        max_turns=10,
+        max_turns=8,
         **kwargs,  # Pass through additional arguments
     )
