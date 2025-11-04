@@ -14,13 +14,13 @@ python scripts/clone_repos.py --output-dir ./swebench_repos \
   --max-instances 1
 ```
 
-3. Run the verifiers eval with your model of choice
+3. Run `vllm` and serve `Qwen3-8B`
+```bash
+vllm serve Qwen/Qwen3-8B --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser deepseek_r1
+```
+
+4. Run the verifiers eval with your model of choice
 
 ```bash
-uv run vf-eval swe-grep-oss-env \  --api-base-url https://generativelanguage.googleapis.com/v1beta/openai/ \
-  --header 'Content-Type: application/json' \
-  --api-key-var GEMINI_API_KEY \
-  --model "gemini-2.5-flash" \
-  --num-examples 1 \
-  --rollouts-per-example 1
+uv run vf-eval swe-grep-oss-env --api-base-url http://localhost:8000/v1 --model "Qwen/Qwen3-8B" --num-examples 1 --rollouts-per-example 1
 ```

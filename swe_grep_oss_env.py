@@ -5,6 +5,7 @@ from datasets import load_dataset
 
 import src.tools as tools
 import src.rewards as rewards
+from src.constants import DEFAULT_MAX_TOKENS, DEFAULT_MAX_TOOL_CALLS
 from src.prompts.system_prompt import SYSTEM_PROMPT
 from src.utils.get_instance import get_instance_path
 from src.utils.tokenize import check_token_limit
@@ -45,6 +46,9 @@ class SWEGrepEnv(vf.StatefulToolEnv):
                 self.logger.warning(f"Failed to check token limit: {e}")
                 # Fall back to default behavior if tokenization fails
                 pass
+        
+        # Store max_tokens_exceeded in state for reward function
+        state["max_tokens_exceeded"] = max_tokens_exceeded
         
         if max_tokens_exceeded or max_turns_reached or prompt_too_long:
             return True
@@ -95,7 +99,7 @@ class SWEGrepEnv(vf.StatefulToolEnv):
         return tool_args
 
 
-def load_environment(max_tokens: int = 40000, **kwargs):
+def load_environment(max_tokens: int = DEFAULT_MAX_TOKENS, max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS, **kwargs):
     """Load and configure the environment."""
 
     # Load dataset
@@ -107,6 +111,7 @@ def load_environment(max_tokens: int = 40000, **kwargs):
                 "repo": row["repo"],
                 "instance_id": row["instance_id"],
                 "max_tokens": max_tokens,
+                "max_tool_calls": max_tool_calls,
             },
             "prompt": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": row["problem_statement"]}],
             "answer": row["patch"],
@@ -120,8 +125,10 @@ def load_environment(max_tokens: int = 40000, **kwargs):
             rewards.result_tool_f1,
             rewards.result_tool_precision,
             rewards.result_tool_recall,
+            rewards.tool_call_count,
+            rewards.max_tokens_check,
         ],
-        weights=[2.0, 1.0, 1.0, 1.0],
+        weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
     )
 
     # Load environment
