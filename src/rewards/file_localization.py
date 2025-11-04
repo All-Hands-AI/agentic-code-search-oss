@@ -1,3 +1,5 @@
+import ast
+
 def compute_file_f1_score(predicted_files, true_files):
     pred, true = set(predicted_files), set(true_files)
     tp = len(pred & true)
@@ -9,7 +11,7 @@ def compute_file_f1_score(predicted_files, true_files):
 
 def file_localization_f1_reward(final_message, instance):
     predicted_files = set(ast.literal_eval(final_message.split("<file-list>")[1].split("</file-list>")[0]))
-    print("Predicted files:", predicted_files)
+    # print("Predicted files:", predicted_files)
     true_files = set(x[0] for x in ast.literal_eval(instance["target"]))
-    print("True files:", true_files)
+    # print("True files:", true_files)
     return compute_file_f1_score(predicted_files, true_files)
