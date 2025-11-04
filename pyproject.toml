@@ -1,10 +1,6 @@
 [project]
-name = "rca"
+name = "src"
 version = "0.0.1"
-authors = [
-    {name="Lintang Sutawika", email="lsutawik@andrew.cmu.edu"}
-]
-description = "Expectation-Maximization for Agentic Coders"
 readme = "README.md"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -20,9 +16,6 @@ dependencies = [
     "unidiff>=0.7.5,<0.8.0",
     "openhands-agent-server",
     "openhands-workspace",
-    "mini-swe-agent>=1.12.0",
-    "swesmith>=0.0.7",
-    "swebench>=4.1.0",
     "vllm",
     "bashlex>=0.18",
     "binaryornot>=0.4.4",
@@ -33,12 +26,7 @@ dependencies = [
     "func-timeout>=4.3.5",
     "logger>=1.4",
     "ipython",
-    "fire>=0.7.1",
 ]
-
-[project.scripts]
-validate-cfg = "benchmarks.scripts.validate_cfg:main"
-swebench-infer = "benchmarks.swe_bench.run_infer:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -46,7 +34,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rca", "agent-sdk"]
+include = ["src", "agent-sdk"]
 
 [dependency-groups]
 dev = [
@@ -73,7 +61,7 @@ explicit = true
 flash-attn = ["torch"]
 
 [tool.uv.sources]
-flash-attn = {url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.7cxx11abiFALSE-cp312-cp312-linux_x86_64.whl"}
+flash-attn = {url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiFALSE-cp312-cp312-linux_x86_64.whl"}
 openhands-sdk = { workspace = true }
 openhands-tools = { workspace = true }
 openhands-workspace = { workspace = true }
