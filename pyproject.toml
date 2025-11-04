@@ -13,19 +13,10 @@ license = { "text" = "MIT" }
 dependencies = [
     "skyrl-train @ git+https://github.com/NovaSky-AI/SkyRL.git@main#subdirectory=skyrl-train",
     "openhands-tools",
-    "unidiff>=0.7.5,<0.8.0",
     "openhands-agent-server",
     "openhands-workspace",
     "vllm",
-    "bashlex>=0.18",
-    "binaryornot>=0.4.4",
-    "cachetools",
-    "libtmux>=0.46.2",
-    "pydantic>=2.11.7",
-    "browser-use>=0.7.7",
-    "func-timeout>=4.3.5",
-    "logger>=1.4",
-    "ipython",
+    "verifiers>=0.1.6.post0",
 ]
 
 [build-system]
