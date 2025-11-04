@@ -25,7 +25,7 @@ done
 MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
 # Get number of GPUs available
 NUM_GPUS=$(nvidia-smi -L | wc -l)
-N_ROLLOUTS="${N_ROLLOUTS:-4}"
+N_ROLLOUTS="${N_ROLLOUTS:-8}"
 MAX_LENGTH=8192
 RUN_NAME="code_search_${MODEL_ALIAS}"
 set -x
@@ -40,10 +40,11 @@ set -x
 
 # DATA_DIR="data/swe_smith"
 DATA_PATH="${DATA_PATH:-data/swe_smith}"
-CKPT_PATH="${CKPT_PATH:-ckpts/${MODEL_ALIAS}}"
+CKPT_PATH="/datadrive/lsutawik/cso/${CKPT_PATH:-ckpts/${MODEL_ALIAS}}"
+mkdir -p $CKPT_PATH
 
 NNODES=1
-NUM_INFERENCE_ENGINES=8
+NUM_INFERENCE_ENGINES=4
 TP_SIZE=1
 LOGGER=wandb
 
@@ -64,14 +65,15 @@ uv run --isolated -m src.train \
   generator.num_inference_engines=$NUM_INFERENCE_ENGINES \
   generator.inference_engine_tensor_parallel_size=$TP_SIZE \
   +generator.traj_dir=$CKPT_PATH/trajectories/ \
+  +generator.engine_init_kwargs="{enable_auto_tool_choice:true,tool_call_parser:hermes}" \
   trainer.epochs=20 \
-  trainer.eval_batch_size=50 \
+  trainer.eval_batch_size=100 \
   trainer.eval_before_train=false \
-  trainer.eval_interval=5 \
+  trainer.eval_interval=10 \
   trainer.update_epochs_per_batch=1 \
   trainer.train_batch_size=8 \
   trainer.policy_mini_batch_size=8 \
-  trainer.micro_forward_batch_size_per_gpu=4 \
+  trainer.micro_forward_batch_size_per_gpu=2 \
   trainer.micro_train_batch_size_per_gpu=2 \
   trainer.dump_data_batch=true \
   trainer.ckpt_interval=10 \
@@ -92,7 +94,7 @@ uv run --isolated -m src.train \
   generator.n_samples_per_prompt=${N_ROLLOUTS} \
   generator.gpu_memory_utilization=0.8 \
   trainer.logger="$LOGGER" \
-  trainer.project_name="rca" \
+  trainer.project_name="code_search" \
   trainer.run_name=${RUN_NAME} \
   trainer.resume_mode=null \
   trainer.ckpt_path="$CKPT_PATH"
