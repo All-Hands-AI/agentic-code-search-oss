@@ -30,15 +30,6 @@ MAX_LENGTH=8192
 RUN_NAME="code_search_${MODEL_ALIAS}"
 set -x
 
-# Colocated GRPO training+generation for Qwen3-8B on the SWE-Bench task.
-# Uses 1 node with 8 GPUs.
-# uv run --isolated examples/mini_swe_agent/preprocess_swegym.py --output_dir ~/data/swe_gym_subset
-# bash examples/mini_swe_agent/run_mini_swe_8B.sh
-
-# Save trajectories here for debugging
-# NOTE: For a multi-node cluster, ensure that this is on NFS so that you can save all trajectories in the same path
-
-# DATA_DIR="data/swe_smith"
 DATA_PATH="${DATA_PATH:-data/swe_smith}"
 CKPT_PATH="/datadrive/lsutawik/cso/${CKPT_PATH:-ckpts/${MODEL_ALIAS}}"
 mkdir -p $CKPT_PATH
