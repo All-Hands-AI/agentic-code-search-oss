@@ -59,7 +59,7 @@ uv run --isolated -m src.train \
   +generator.engine_init_kwargs="{enable_auto_tool_choice:true,tool_call_parser:hermes}" \
   trainer.epochs=20 \
   trainer.eval_batch_size=100 \
-  trainer.eval_before_train=false \
+  trainer.eval_before_train=true \
   trainer.eval_interval=10 \
   trainer.update_epochs_per_batch=1 \
   trainer.train_batch_size=8 \
