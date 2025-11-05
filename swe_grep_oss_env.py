@@ -1,14 +1,16 @@
+import datetime
 import json
 import logging
 import verifiers as vf
 from datasets import load_dataset
-
+import traceback
 import src.tools as tools
 import src.rewards as rewards
 from src.constants import DEFAULT_MAX_TOKENS, DEFAULT_MAX_TOOL_CALLS
 from src.prompts.system_prompt import SYSTEM_PROMPT
 from src.utils.get_instance import get_instance_path
 from src.utils.tokenize import check_token_limit
+from src.utils.get_result_tool_call import get_result_tool_call
 
 
 logger = logging.getLogger("swe-grep-oss")
@@ -38,21 +40,24 @@ class SWEGrepEnv(vf.StatefulToolEnv):
                     base_url=kwargs.get("base_url", "http://localhost:8000"),
                 )
                 max_tokens_exceeded = exceeded
-                # self.logger.info(
-                #     f"Token count: {current_count}/{max_allowed} "
-                #     f"(exceeded: {exceeded})"
-                # )
             except Exception as e:
-                self.logger.warning(f"Failed to check token limit: {e}")
-                # Fall back to default behavior if tokenization fails
-                pass
+                self.logger.warning(f"Failed to check token limit: {e}\n{traceback.format_exc()}")
+
+                # save messages and state to a file
+                with open(f"messages-{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.json", "w") as f:
+                    json.dump({"messages": messages, "state": state}, f, indent=2)
+                
+                raise e
         
         # Store max_tokens_exceeded in state for reward function
         state["max_tokens_exceeded"] = max_tokens_exceeded
-        
-        if max_tokens_exceeded or max_turns_reached or prompt_too_long:
-            return True
 
+        # Check if the result tool call succeeded
+        _, result_tool_call_success = get_result_tool_call(messages)
+        
+        if max_tokens_exceeded or result_tool_call_success or max_turns_reached or prompt_too_long:
+            return True
+        
         return False
 
     async def env_response(
