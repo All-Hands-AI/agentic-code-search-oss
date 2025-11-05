@@ -96,7 +96,7 @@ def init_and_run(
 
     conversation = Conversation(
         agent=agent,
-        max_iteration_per_run=4,
+        max_iteration_per_run=3,
         visualize=False,
         workspace=str(working_dir),
     )
@@ -181,66 +181,69 @@ class CodeSearchGenerator(SkyRLGymGenerator):
         # instance = env_extras["instance"]
         try:
             messages, reward, error = await init_and_run.remote(
-                env_extras,
+                env_extras["instance"],
                 self.litellm_model_name,
                 # sweagent_config,
                 self.base_url,
                 self.generator_cfg,
-                # env_extras["data_source"],
-                "Swe-Gym",
+                env_extras["data_source"],
                 sampling_params,
                 trajectory_id,
                 batch_metadata.global_step,
                 batch_metadata.training_phase,
             )
+
+            print("=" * 100)
+            print("Conversation finished. Got the following LLM messages:")
+            for i, message in enumerate(messages):
+                print(f"Message {i}: {str(message)[:200]}")
+
+            messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
+
+            stop_reason = "complete"
+            prompt_ids_list = []
+            response_ids_list = []
+            loss_mask = []
+            initial_input_len = 0
+            past_trajectory_len = 0
+            for idx, message in enumerate(messages):
+                current_prompt_ids = message["prompt_tokens_ids"]
+                current_response_ids = message["response_token_ids"]
+
+                prompt_ids_list.append(current_prompt_ids)
+                response_ids_list.append(current_response_ids)
+
+                if idx == 0:
+                    initial_input_ids = current_prompt_ids
+                    initial_input_len = len(initial_input_ids)
+                    # TODO properly handle max tokens
+                    # max_response_tokens = max_tokens + max_input_length - initial_input_len
+
+                trajectory_ids = current_prompt_ids[initial_input_len:]
+                past_response_len = len(response_ids_list[idx-1]) if idx > 0 else 0
+                past_response_observation_ids = trajectory_ids[past_trajectory_len+past_response_len:]
+                past_response_observation_len = len(past_response_observation_ids)
+                loss_mask.extend([1] * past_response_len + [0] * past_response_observation_len)
+                past_trajectory_len = len(trajectory_ids)
+
+                # response_ids = trajectory_ids + current_response_ids
+                # if len(response_ids) >= max_response_tokens:
+                #     response_ids = response_ids[:max_response_tokens]
+                #     loss_mask.extend([1] * len(current_response_ids))
+                #     loss_mask = loss_mask[:max_response_tokens]
+                #     stop_reason = "length"
+                #     break
+            
+            response_ids = trajectory_ids + current_response_ids
+            loss_mask.extend([1] * len(current_response_ids))
+
         except Exception as e:
             # TODO properly handle this
             reward = 0
-            messages = [{"kind": "TokenEvent", "prompt_tokens_ids": [151643], "response_token_ids": [151643]}]
-
-        print("=" * 100)
-        print("Conversation finished. Got the following LLM messages:")
-        for i, message in enumerate(messages):
-            print(f"Message {i}: {str(message)[:200]}")
-
-        messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
-
-        stop_reason = "complete"
-        prompt_ids_list = []
-        response_ids_list = []
-        loss_mask = []
-        initial_input_len = 0
-        past_trajectory_len = 0
-        for idx, message in enumerate(messages):
-            current_prompt_ids = message["prompt_tokens_ids"]
-            current_response_ids = message["response_token_ids"]
-
-            prompt_ids_list.append(current_prompt_ids)
-            response_ids_list.append(current_response_ids)
-
-            if idx == 0:
-                initial_input_ids = current_prompt_ids
-                initial_input_len = len(initial_input_ids)
-                # TODO properly handle max tokens
-                # max_response_tokens = max_tokens + max_input_length - initial_input_len
-
-            trajectory_ids = current_prompt_ids[initial_input_len:]
-            past_response_len = len(response_ids_list[idx-1]) if idx > 0 else 0
-            past_response_observation_ids = trajectory_ids[past_trajectory_len+past_response_len:]
-            past_response_observation_len = len(past_response_observation_ids)
-            loss_mask.extend([1] * past_response_len + [0] * past_response_observation_len)
-            past_trajectory_len = len(trajectory_ids)
-
-            # response_ids = trajectory_ids + current_response_ids
-            # if len(response_ids) >= max_response_tokens:
-            #     response_ids = response_ids[:max_response_tokens]
-            #     loss_mask.extend([1] * len(current_response_ids))
-            #     loss_mask = loss_mask[:max_response_tokens]
-            #     stop_reason = "length"
-            #     break
-        
-        response_ids = trajectory_ids + current_response_ids
-        loss_mask.extend([1] * len(current_response_ids))
+            response_ids = [151643]
+            stop_reason = "error"
+            loss_mask = [1]
+            initial_input_ids = [151643]
 
         return (response_ids, reward, stop_reason, loss_mask, initial_input_ids, None)
 
