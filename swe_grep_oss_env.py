@@ -2,7 +2,9 @@ import datetime
 import json
 import logging
 import verifiers as vf
+from openai import AsyncOpenAI
 from datasets import load_dataset
+
 import src.tools as tools
 import src.rewards as rewards
 from src.constants import DEFAULT_MAX_TOKENS, DEFAULT_MAX_TOOL_CALLS
@@ -85,6 +87,37 @@ class SWEGrepEnv(vf.StatefulToolEnv):
             tool_messages.append(tool_message)
         return tool_messages, state
 
+    async def rollout(
+        self,
+        client: AsyncOpenAI,
+        model: str,
+        prompt: vf.types.Messages,
+        completion: vf.types.Messages | None = None,
+        answer: str = "",
+        state: vf.types.State = {},
+        task: str = "default",
+        info: vf.types.Info | None = None,
+        example_id: int = 0,
+        sampling_args: vf.types.SamplingArgs | None = None,
+        **kwargs,
+    ) -> tuple[vf.types.Messages, vf.types.State]:
+        try:
+            return await super().rollout(
+                client,
+                model,
+                prompt,
+                completion,
+                answer,
+                state,
+                task,
+                info,
+                example_id,
+                sampling_args,
+                **kwargs,
+            )
+        except Exception as e:
+            self.logger.error(f"Error in rollout: {e}")
+            return completion, state
 
     def update_tool_args(
         self,

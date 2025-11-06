@@ -19,7 +19,12 @@ python scripts/clone_repos.py --output-dir ./swebench_repos \
 vllm serve Qwen/Qwen3-8B --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser deepseek_r1
 ```
 
-4. Run the verifiers eval with your model of choice
+4. Install [ripgrep](https://github.com/BurntSushi/ripgrep?tab=readme-ov-file#installation)
+```bash
+sudo apt-get install ripgrep
+```
+
+5. Run the verifiers eval with your model of choice
 
 ```bash
 uv run vf-eval swe-grep-oss-env --api-base-url http://localhost:8000/v1 --model "Qwen/Qwen3-8B" --num-examples 1 --rollouts-per-example 1
