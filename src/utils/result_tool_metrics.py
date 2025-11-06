@@ -8,6 +8,21 @@ from src.utils.get_result_tool_call import get_result_tool_call
 from src.utils.parse_patch import parse_patch
 
 
+def _sanitize_path(path: str) -> str:
+    """
+    Sanitize a file path by removing leading './' prefix.
+
+    Args:
+        path: File path to sanitize
+
+    Returns:
+        Sanitized file path
+    """
+    if path.startswith("./"):
+        return path[2:]
+    return path
+
+
 def get_file_sets(
     completion: vf.types.Messages, patch: str
 ) -> tuple[set[str], set[str]] | tuple[None, None]:
@@ -29,7 +44,7 @@ def get_file_sets(
 
     # Parse the patch to get file paths
     patch_info = parse_patch(patch)
-    patch_files = set(patch_info.keys())
+    patch_files = {_sanitize_path(path) for path in patch_info.keys()}
 
     # Get file paths from the result tool call
     try:
@@ -43,7 +58,7 @@ def get_file_sets(
             # Get file paths from the result
             result_files = set()
             if "file_paths" in args:
-                result_files = set(args["file_paths"])
+                result_files = {_sanitize_path(path) for path in args["file_paths"]}
 
             if not result_files:
                 return None, None

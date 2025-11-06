@@ -3,13 +3,12 @@ import json
 import logging
 import verifiers as vf
 from datasets import load_dataset
-import traceback
 import src.tools as tools
 import src.rewards as rewards
 from src.constants import DEFAULT_MAX_TOKENS, DEFAULT_MAX_TOOL_CALLS
 from src.prompts.system_prompt import SYSTEM_PROMPT
 from src.utils.get_instance import get_instance_path
-from src.utils.tokenize import check_token_limit
+from src.utils.token_counter import check_token_limit
 from src.utils.get_result_tool_call import get_result_tool_call
 
 
