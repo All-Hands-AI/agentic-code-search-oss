@@ -128,7 +128,7 @@ def init_and_run(
         final_message = get_agent_final_response(conversation.state.events)
 
     try:
-        reward_file = file_localization_f1_reward(final_message, instance)
+        reward_file = file_localization_f1_reward(final_message, instance, working_dir=working_dir)
 
         def multiturn_reward(messages):
             token_messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]

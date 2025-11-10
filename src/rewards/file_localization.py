@@ -16,7 +16,7 @@ def compute_file_f1_score(predicted_files, true_files):
 #     # print("True files:", true_files)
 #     return compute_file_f1_score(predicted_files, true_files)
 
-def file_localization_f1_reward(final_message, instance):
+def file_localization_f1_reward(final_message, instance, working_dir=None):
 
     # <file=full_path1/file1.py>
     # <line>10</line>
@@ -38,6 +38,11 @@ def file_localization_f1_reward(final_message, instance):
     file_sections = final_message.split("<file=")[1:]
     for section in file_sections:
         file_path = section.split(">")[0]
+        if working_dir:
+            # Remove the working directory prefix if present
+            if file_path.startswith(working_dir):
+                file_path = file_path[len(working_dir):]
+
         predicted_files.add(file_path)
     true_files = set(x[0] for x in ast.literal_eval(instance["target"]))
 
