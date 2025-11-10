@@ -107,7 +107,7 @@ def init_and_run(
     conversation = Conversation(
         agent=agent,
         max_iteration_per_run=8,
-        visualize=False,
+        visualizer=None,
         workspace=str(working_dir),
     )
     prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompts", "templates", "file_localization.j2")
@@ -225,7 +225,7 @@ class CodeSearchGenerator(SkyRLGymGenerator):
             initial_input_len = 0
             past_trajectory_len = 0
             for idx, message in enumerate(token_messages):
-                current_prompt_ids = message["prompt_tokens_ids"]
+                current_prompt_ids = message["prompt_token_ids"]
                 current_response_ids = message["response_token_ids"]
 
                 prompt_ids_list.append(current_prompt_ids)
