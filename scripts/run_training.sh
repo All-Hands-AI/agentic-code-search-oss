@@ -1,14 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=cso
-#SBATCH --output=logs/%j.out
-#SBATCH --error=logs/%j.out
-#SBATCH --partition=preempt
+#SBATCH --output=../logs/%j.out
+#SBATCH --error=../logs/%j.out
+#SBATCH --partition=general
 #SBATCH --gres=gpu:L40S:8
 #SBATCH --nodes=1
 #SBATCH --time=2-00:00:00
-#SBATCH --mem=64G
+#SBATCH --mem=512G
 #SBATCH --cpus-per-task=32
 #SBATCH --ntasks-per-node=1
+#SBATCH --exclude=babel-q5-28,babel-o5-20
 
 . .env
 
@@ -26,16 +27,16 @@ MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
 # Get number of GPUs available
 NUM_GPUS=$(nvidia-smi -L | wc -l)
 N_ROLLOUTS="${N_ROLLOUTS:-8}"
-MAX_LENGTH=8192
+MAX_LENGTH=2048
 RUN_NAME="code_search_${MODEL_ALIAS}"
 set -x
 
 DATA_PATH="${DATA_PATH:-data/swe_smith}"
-CKPT_PATH="/datadrive/lsutawik/cso/${CKPT_PATH:-ckpts/${MODEL_ALIAS}}"
+CKPT_PATH="${CKPT_PATH:-ckpts/${MODEL_ALIAS}}"
 mkdir -p $CKPT_PATH
 
 NNODES=1
-NUM_INFERENCE_ENGINES=4
+NUM_INFERENCE_ENGINES=8
 TP_SIZE=1
 LOGGER=wandb
 
@@ -59,8 +60,8 @@ uv run --isolated -m src.train \
   +generator.engine_init_kwargs="{enable_auto_tool_choice:true,tool_call_parser:hermes}" \
   trainer.epochs=20 \
   trainer.eval_batch_size=100 \
-  trainer.eval_before_train=true \
-  trainer.eval_interval=10 \
+  trainer.eval_before_train=false \
+  trainer.eval_interval=100 \
   trainer.update_epochs_per_batch=1 \
   trainer.train_batch_size=8 \
   trainer.policy_mini_batch_size=8 \
@@ -83,7 +84,7 @@ uv run --isolated -m src.train \
   generator.async_engine=true \
   generator.batched=true \
   generator.n_samples_per_prompt=${N_ROLLOUTS} \
-  generator.gpu_memory_utilization=0.8 \
+  generator.gpu_memory_utilization=0.7 \
   trainer.logger="$LOGGER" \
   trainer.project_name="code_search" \
   trainer.run_name=${RUN_NAME} \

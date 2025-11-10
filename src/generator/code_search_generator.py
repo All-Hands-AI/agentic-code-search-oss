@@ -32,6 +32,7 @@ from openhands.tools.preset.default import get_default_agent
 from openhands.sdk.conversation.response_utils import get_agent_final_response
 from openhands.workspace import DockerWorkspace
 from openhands.tools.preset.default import get_default_tools
+from openhands.tools.preset.planning import get_planning_tools
 from openhands.sdk import (
     Agent,
     LLM,
@@ -70,7 +71,9 @@ def init_and_run(
     repo_name = instance["repo"]
     commit_id = instance["base_commit"]
     workspace = Path("/tmp/testbed/")
+    # workspace = Path("testbed/")
     status, working_dir = clone_instance(repo_name, commit_id, instance_id, workspace)
+    print("working_dir:", working_dir)
 
     if training_phase == "eval":
         temperature = 0.6
@@ -80,23 +83,30 @@ def init_and_run(
     agent = None
     final_message = ""
     reward = 0
+    reward_dict = {}
     error = None
     messages = []
 
-    agent = get_default_agent(
+    agent = Agent(
         llm=LLM(
             service_id="agent",
             model=litellm_model_name,
             base_url=f"http://localhost:8080/v1/",
             api_key=os.getenv("API_KEY"),
             temperature=temperature,
+            litellm_extra_body={
+                "return_token_ids": True,
+                "include_stop_str_in_output": True,
+            }
         ),
-        cli_mode=True,
+        tools=get_planning_tools(),
+        system_prompt_filename=os.path.join(os.path.dirname(__file__), "..", "prompts", "templates", "system_message_search.j2"),
+        security_analyzer=None,
     )
 
     conversation = Conversation(
         agent=agent,
-        max_iteration_per_run=3,
+        max_iteration_per_run=8,
         visualize=False,
         workspace=str(working_dir),
     )
@@ -109,6 +119,7 @@ def init_and_run(
         conversation.run()
     except Exception as e:
         logger.error(f"Error is sending conversation: {e}", exc_info=True)
+        error = e + "\n" + traceback.format_exc()
     finally:
         conversation.close()
         logger.info("Conversation Finished")
@@ -116,22 +127,28 @@ def init_and_run(
         messages = list(map(lambda event: event.model_dump(), conversation.state.events))
         final_message = get_agent_final_response(conversation.state.events)
 
-        path = Path(generator_cfg.traj_dir) / f"step_{global_step}" / training_phase
-        path.mkdir(parents=True, exist_ok=True)
-        instance_id = instance["instance_id"]
-        filename = f"{instance_id}_{trajectory_id.repetition_id}.jsonl"
-        path = path / filename
-
-        print(f"Saving trajectory to {path}")
-        with open(path, "w") as f:
-            f.writelines(str(msg) + "\n" for msg in messages)
-
     try:
-        reward = file_localization_f1_reward(final_message, instance)
+        reward_file = file_localization_f1_reward(final_message, instance)
+
+        def multiturn_reward(messages):
+            token_messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
+            if len(token_messages) > 1:
+                return 1.0
+            return 0.0
+
+        reward_multiturn = multiturn_reward(messages)
+
+        reward = reward_file + reward_multiturn
+        reward_dict = {"file_localization_f1": reward_file, "multiturn_reward": reward_multiturn}
     except Exception as e:
         reward = 0.0
-
-    return (messages, reward, error)
+        reward_dict = {"file_localization_f1": 0.0, "multiturn_reward": 0.0}
+        # error = str(e) + "\n" + traceback.format_exc()
+    return (
+        (messages, final_message),
+        (reward, reward_dict),
+        error,
+        )
 
 
 class CodeSearchGenerator(SkyRLGymGenerator):
@@ -180,25 +197,26 @@ class CodeSearchGenerator(SkyRLGymGenerator):
         # NOTE (sumanthrh): Input `prompt` is not used here because mini-swe-agent uses a similar entry from the `instance` obj
         # instance = env_extras["instance"]
         try:
-            messages, reward, error = await init_and_run.remote(
-                env_extras["instance"],
+            (messages, final_message), (reward, reward_dict), error = await init_and_run.remote(
+                env_extras,
                 self.litellm_model_name,
                 # sweagent_config,
                 self.base_url,
                 self.generator_cfg,
-                env_extras["data_source"],
+                # env_extras["data_source"],
+                "swe-gym",
                 sampling_params,
                 trajectory_id,
                 batch_metadata.global_step,
                 batch_metadata.training_phase,
             )
 
-            print("=" * 100)
-            print("Conversation finished. Got the following LLM messages:")
-            for i, message in enumerate(messages):
-                print(f"Message {i}: {str(message)[:200]}")
+            # print("=" * 100)
+            # print("Conversation finished. Got the following LLM messages:")
+            # for i, message in enumerate(messages):
+            #     print(f"Message {i}: {str(message)[:200]}")
 
-            messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
+            token_messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
 
             stop_reason = "complete"
             prompt_ids_list = []
@@ -206,7 +224,7 @@ class CodeSearchGenerator(SkyRLGymGenerator):
             loss_mask = []
             initial_input_len = 0
             past_trajectory_len = 0
-            for idx, message in enumerate(messages):
+            for idx, message in enumerate(token_messages):
                 current_prompt_ids = message["prompt_tokens_ids"]
                 current_response_ids = message["response_token_ids"]
 
@@ -238,12 +256,41 @@ class CodeSearchGenerator(SkyRLGymGenerator):
             loss_mask.extend([1] * len(current_response_ids))
 
         except Exception as e:
+            logger.error(f"Error is sending conversation: {e}", exc_info=True)
             # TODO properly handle this
+            error = str(e) + "\n" + traceback.format_exc()
             reward = 0
             response_ids = [151643]
             stop_reason = "error"
             loss_mask = [1]
             initial_input_ids = [151643]
+            final_message = ""
+            reward_dict = {"file_localization_f1": 0.0, "multiturn_reward": 0.0}
+
+        path = Path(self.generator_cfg.traj_dir) / f"step_{batch_metadata.global_step}" / batch_metadata.training_phase
+        path.mkdir(parents=True, exist_ok=True)
+        instance_id = env_extras["instance_id"]
+
+        if error is not None:
+            filename = f"{instance_id}_{trajectory_id.repetition_id}.error"
+            filename_path = path / filename
+            print(f"Saving error to {filename_path}")
+            with open(filename_path, "w") as f:
+                f.write(error)
+        else:
+            filename = f"{instance_id}_{trajectory_id.repetition_id}.json"
+            filename_path = path / filename
+
+            result_dict = {
+                "target": env_extras["target"],
+                "final_message": final_message,
+                "reward_dict": reward_dict,
+                "messages": messages,
+            }
+
+            print(f"Saving trajectory to {filename_path}")
+            with open(filename_path, "w") as f:
+                json.dump(result_dict, f, indent=2) #, sort_keys=True, ensure_ascii=False)
 
         return (response_ids, reward, stop_reason, loss_mask, initial_input_ids, None)
 
