@@ -13,7 +13,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
-    "datasets>=4.2.0",
+    "datasets>=4.0.0",
     "openhands-tools",
     "openhands-agent-server",
     "openhands-workspace",

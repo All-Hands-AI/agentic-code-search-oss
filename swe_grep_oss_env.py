@@ -32,28 +32,28 @@ class SWEGrepEnv(vf.StatefulToolEnv):
         
         # Check if we've exceeded the token limit
         max_tokens_exceeded = False
-        try:
-            if not (isinstance(messages, list) and "info" in state and "max_tokens" in state["info"]):
-                raise ValueError("Messages or state is not valid")
+        # try:
+        #     if not (isinstance(messages, list) and "info" in state and "max_tokens" in state["info"]):
+        #         raise ValueError("Messages or state is not valid")
             
-            exceeded, current_count, max_allowed = await check_token_limit(
-                messages=messages,
-                max_tokens=state["info"]["max_tokens"],
-                model=kwargs.get("model", "Qwen/Qwen3-8B"),
-                base_url=kwargs.get("base_url", "http://localhost:8000"),
-            )
-            max_tokens_exceeded = exceeded
-        except Exception as e:
-            self.logger.warning(f"Failed to check token limit: {e}")
+        #     exceeded, current_count, max_allowed = await check_token_limit(
+        #         messages=messages,
+        #         max_tokens=state["info"]["max_tokens"],
+        #         model=kwargs.get("model", "Qwen/Qwen3-8B"),
+        #         base_url=kwargs.get("base_url", "http://localhost:8000"),
+        #     )
+        #     max_tokens_exceeded = exceeded
+        # except Exception as e:
+        #     self.logger.warning(f"Failed to check token limit: {e}")
 
-            self.logger.warning(f"\nMessages: {messages}")
-            self.logger.warning(f"\nState: {state}")
+        #     self.logger.warning(f"\nMessages: {messages}")
+        #     self.logger.warning(f"\nState: {state}")
 
-            # save messages and state to a file
-            with open(f"messages-{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.json", "w") as f:
-                json.dump({"messages": messages, "state": state}, f, indent=2)
+        #     # save messages and state to a file
+        #     with open(f"messages-{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.json", "w") as f:
+        #         json.dump({"messages": messages, "state": state}, f, indent=2)
             
-            raise e
+        #     raise e
         
         # Store max_tokens_exceeded in state for reward function
         state["max_tokens_exceeded"] = max_tokens_exceeded

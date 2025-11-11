@@ -39,7 +39,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "datasets", specifier = ">=4.2.0" },
+    { name = "datasets", specifier = ">=4.0.0" },
     { name = "ipykernel", specifier = ">=7.1.0" },
     { name = "ipywidgets", specifier = ">=8.1.8" },
     { name = "matplotlib", specifier = ">=3.10.7" },
