@@ -43,8 +43,11 @@ def file_localization_f1_reward(final_message, instance, working_dir=None):
             if file_path.startswith(working_dir):
                 file_path = file_path[len(working_dir):]
 
+            if file_path.startswith("/"):
+                file_path = file_path[1:]
+
         predicted_files.add(file_path)
     true_files = set(x[0] for x in ast.literal_eval(instance["target"]))
 
-    return compute_file_f1_score(predicted_files, true_files)
+    return list(predicted_files), compute_file_f1_score(predicted_files, true_files)
 

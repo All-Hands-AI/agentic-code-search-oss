@@ -36,13 +36,13 @@ CKPT_PATH="${CKPT_PATH:-ckpts/${MODEL_ALIAS}}"
 mkdir -p $CKPT_PATH
 
 NNODES=1
-NUM_INFERENCE_ENGINES=8
+NUM_INFERENCE_ENGINES=4
 TP_SIZE=1
 LOGGER=wandb
 
 # We use a small batch size here for demonstration
 # NOTE (sumanthrh): The `generator.max_turns` here is actually unused, and we use the `step_limit` from the `swebench.yaml` file. 
-uv run --isolated -m src.train \
+CUDA_LAUNCH_BLOCKING=1 uv run --isolated -m src.train \
   data.train_data="['$DATA_PATH/train.parquet']" \
   data.val_data="['$DATA_PATH/validation.parquet']" \
   trainer.algorithm.advantage_estimator="grpo" \
