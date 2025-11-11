@@ -21,7 +21,7 @@ vllm serve Qwen/Qwen3-8B --enable-auto-tool-choice --tool-call-parser hermes --r
 
 4. Install [ripgrep](https://github.com/BurntSushi/ripgrep?tab=readme-ov-file#installation)
 ```bash
-sudo apt-get install ripgrep
+sudo apt-get install ripgrep -y
 ```
 
 5. Run the verifiers eval with your model of choice
