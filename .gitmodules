@@ -1,3 +1,6 @@
 [submodule "agent-sdk"]
 	path = agent-sdk
 	url = https://github.com/OpenHands/agent-sdk.git
+[submodule "prime-rl"]
+	path = prime-rl
+	url = https://github.com/PrimeIntellect-ai/prime-rl
