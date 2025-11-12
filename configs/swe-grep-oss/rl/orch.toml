@@ -1,17 +1,17 @@
-batch_size = 4
-rollouts_per_example = 4
-seq_len = 1024
-max_steps = 5
+batch_size = 48
+seq_len = 40000
+rollouts_per_example = 16
+max_steps = 50
 mask_truncated_completions = false
+
+[wandb]
+project = "swe-grep-oss"
 
 [model]
 name = "willcb/Qwen3-8B"
 
-[sampling]
-max_tokens = 1024
-
 [[env]]
 id = "swe-grep-oss-env"
-# Pass arguments to your load_environment function
-args = { max_tokens = 1024, max_tool_calls = 20 }
 
+[ckpt]
+interval = 10

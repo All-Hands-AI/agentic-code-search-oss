@@ -165,7 +165,10 @@ def load_environment(max_tokens: int = DEFAULT_MAX_TOKENS, max_tool_calls: int =
             return path
         
         # Parse the model's response
-        predicted_files_str = parser.parse_answer(completion) or ""
+        predicted_files_str = parser.parse_answer(completion)
+        if predicted_files_str is None:
+            return -2.0
+
         try:
             # Try to parse as JSON array
             if predicted_files_str.strip().startswith("["):
