@@ -21,26 +21,4 @@ Follow these steps to localize the issue:
     - Consider upstream and downstream dependencies that may affect or be affected by the issue.
     - If applicable, identify where to introduce new fields, functions, or variables. - Think Thoroughly: List multiple potential solutions and consider edge cases that could impact the resolution.
 ## Output Format for Final Results:
-    Your final output should list the locations requiring modification, wrapped with triple backticks ```
-    Each location should include the file path, class name (if applicable), function name, or line numbers, ordered by importance.
-    Your answer would better include about 5 files.
-### Examples:
-```
-<file=full_path1/file1.py>
-<line>10</line>
-<class>MyClass1</class>
-<function>my_function1</function>
-</file>
-<file=full_path2/file2.py>
-<line>76</line>
-<function>MyClass2.my_function2</function>
-</file>
-<file=full_path3/file3.py>
-<line>24</line>
-<line>156</line>
-<function>my_function3</function>
-</file>
-```
-Return just the location(s)
-Note: Your thinking should be thorough and so it's fine if it's very long.
-
+    Only use grep to find and please output your answer as just a list of the relevant files that are directly related to the <issue_description> in the format <file-list>['file1', 'file2', ...]</file-list> using the message parameter of the Finish tool.

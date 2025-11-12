@@ -99,8 +99,9 @@ def init_and_run(
                 "include_stop_str_in_output": True,
             }
         ),
-        tools=get_planning_tools(),
-        system_prompt_filename=os.path.join(os.path.dirname(__file__), "..", "prompts", "templates", "system_message_search.j2"),
+        # tools=get_planning_tools(),
+        tools=get_default_tools(enable_browser=False),
+        # system_prompt_filename=os.path.join(os.path.dirname(__file__), "..", "prompts", "templates", "system_message_search.j2"),
         security_analyzer=None,
     )
 
@@ -128,7 +129,8 @@ def init_and_run(
         final_message = get_agent_final_response(conversation.state.events)
 
     try:
-        predicted_files, reward_file = file_localization_f1_reward(final_message, instance, working_dir=working_dir)
+        reward_file = file_localization_f1_reward(final_message, instance)
+        # reward_file = file_localization_f1_reward(final_message, instance, working_dir=working_dir)
 
         def multiturn_reward(messages):
             token_messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
@@ -139,10 +141,10 @@ def init_and_run(
         reward_multiturn = multiturn_reward(messages)
 
         reward = reward_file + reward_multiturn
-        reward_dict = {"predicted_files": predicted_files, "file_localization_f1": reward_file, "multiturn_reward": reward_multiturn}
+        reward_dict = {"file_localization_f1": reward_file, "multiturn_reward": reward_multiturn}
     except Exception as e:
         reward = 0.0
-        reward_dict = {"predicted_files": [], "file_localization_f1": 0.0, "multiturn_reward": 0.0}
+        reward_dict = {"file_localization_f1": 0.0, "multiturn_reward": 0.0}
         # error = str(e) + "\n" + traceback.format_exc()
     return (
         (messages, final_message),
