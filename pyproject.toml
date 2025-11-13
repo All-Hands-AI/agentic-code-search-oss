@@ -13,11 +13,16 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
-    "datasets>=4.2.0",
+    "datasets>=4.0.0",
     "openhands-tools",
     "openhands-agent-server",
     "openhands-workspace",
-    "verifiers>=0.1.6.post0",
+    "verifiers>=0.1.7.post0",
+    "vllm>=0.11.0",
+    "ipykernel>=7.1.0",
+    "ipywidgets>=8.1.8",
+    "matplotlib>=3.10.7",
+    "seaborn>=0.13.2",
 ]
 
 [dependency-groups]
