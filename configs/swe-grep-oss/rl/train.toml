@@ -1,7 +1,10 @@
-max_steps = 50
+max_steps = 150
 
 [model]
-name = "willcb/Qwen3-8B"
+name = "willcb/Qwen3-4B"
+
+[model.ac]
+freq = 1
 
 [ckpt]
 interval = 10

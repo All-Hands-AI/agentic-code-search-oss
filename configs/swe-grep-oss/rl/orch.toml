@@ -1,14 +1,14 @@
-batch_size = 48
-seq_len = 40000
-rollouts_per_example = 16
-max_steps = 50
+batch_size = 8
+seq_len = 8000
+rollouts_per_example = 8
+max_steps = 150
 mask_truncated_completions = false
 
 [wandb]
 project = "swe-grep-oss"
 
 [model]
-name = "willcb/Qwen3-8B"
+name = "willcb/Qwen3-4B"
 
 [[env]]
 id = "swe-grep-oss-env"

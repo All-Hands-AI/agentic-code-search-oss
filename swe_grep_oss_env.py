@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+from typing import Literal
 import verifiers as vf
 from openai import AsyncOpenAI
 from datasets import load_dataset
@@ -129,24 +130,51 @@ class SWEGrepEnv(vf.StatefulToolEnv):
         return tool_args
 
 
-def load_environment(max_tokens: int = DEFAULT_MAX_TOKENS, max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS, **kwargs):
-    """Load and configure the environment."""
-
-    # Load dataset
-    dataset = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
-    dataset = dataset.map(
-        lambda row: {
-            # we can add metadata related to the dataset row here
+def load_environment(
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
+    mode: Literal["train", "test", "full", "rl"] = "rl",
+    **kwargs
+):
+    """
+    Load and configure the SWE-Grep environment.
+    
+    Args:
+        max_tokens: Maximum tokens for model responses
+        max_tool_calls: Maximum number of tool calls allowed
+        mode: Dataset mode - "train" (80%), "test" (20%), "full" (100%), or "rl" (train+eval split)
+        **kwargs: Additional arguments passed to SWEGrepEnv
+    
+    Returns:
+        SWEGrepEnv instance configured with the specified dataset
+    """
+    
+    # Load and prepare dataset
+    full_dataset = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
+    full_dataset = full_dataset.shuffle(seed=42)
+    
+    # Transform dataset with metadata and prompts
+    def transform_row(row):
+        return {
             "info": {
                 "repo": row["repo"],
                 "instance_id": row["instance_id"],
                 "max_tokens": max_tokens,
                 "max_tool_calls": max_tool_calls,
             },
-            "prompt": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": row["problem_statement"]}],
-            "answer": json.dumps(parse_patch(row["patch"])),  # Convert file list to JSON string
+            "prompt": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": row["problem_statement"]}
+            ],
+            "answer": json.dumps(parse_patch(row["patch"])),
         }
-    )
+    
+    full_dataset = full_dataset.map(transform_row)
+    
+    # Split dataset for train/eval modes
+    split_dataset = full_dataset.train_test_split(test_size=0.2, seed=42)
+    train_dataset = split_dataset["train"]
+    eval_dataset = split_dataset["test"]
 
     # XML parser to extract files from <files> tags
     parser = vf.XMLParser(["files"], answer_field="files")
@@ -210,12 +238,24 @@ def load_environment(max_tokens: int = DEFAULT_MAX_TOKENS, max_tool_calls: int =
         funcs=[file_localization_reward],
         weights=[1.0],
     )
-
-    # Load environment
-    return SWEGrepEnv(
-        dataset=dataset,
-        parser=parser,
-        rubric=rubric,
-        max_turns=8,
-        **kwargs,  # Pass through additional arguments
-    )
+    
+    # Common environment configuration
+    env_config = {
+        "parser": parser,
+        "rubric": rubric,
+        "max_turns": 8,
+        **kwargs,
+    }
+    
+    # Select dataset(s) based on mode
+    if mode == "full":
+        env_config["dataset"] = full_dataset
+    elif mode == "train":
+        env_config["dataset"] = train_dataset
+    elif mode == "test":
+        env_config["dataset"] = eval_dataset
+    else:  # mode == "rl" (default)
+        env_config["dataset"] = train_dataset
+        env_config["eval_dataset"] = eval_dataset
+    
+    return SWEGrepEnv(**env_config)
