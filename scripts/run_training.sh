@@ -26,7 +26,7 @@ done
 MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
 # Get number of GPUs available
 NUM_GPUS=$(nvidia-smi -L | wc -l)
-N_ROLLOUTS="${N_ROLLOUTS:-8}"
+N_ROLLOUTS="${N_ROLLOUTS:-4}"
 MAX_LENGTH=2048
 RUN_NAME="code_search_${MODEL_ALIAS}"
 set -x
@@ -71,10 +71,11 @@ CUDA_LAUNCH_BLOCKING=1 uv run --isolated -m src.train \
   trainer.ckpt_interval=10 \
   trainer.max_prompt_length=4096 \
   generator.sampling_params.max_generate_length=${MAX_LENGTH} \
-  generator.max_input_length=30720 \
+  generator.max_input_length=24000 \
+  generator.max_num_batched_tokens=48000 \
   generator.max_turns=20 \
   trainer.policy.optimizer_config.lr=1.0e-6 \
-  trainer.algorithm.use_kl_loss=true \
+  trainer.algorithm.use_kl_loss=False \
   generator.backend=vllm \
   generator.run_engines_locally=True \
   generator.enable_http_endpoint=True \
@@ -84,8 +85,7 @@ CUDA_LAUNCH_BLOCKING=1 uv run --isolated -m src.train \
   generator.async_engine=true \
   generator.batched=true \
   generator.n_samples_per_prompt=${N_ROLLOUTS} \
-  generator.gpu_memory_utilization=0.4 \
-  generator.enforce_eager=false \
+  generator.gpu_memory_utilization=0.6 \
   trainer.logger="$LOGGER" \
   trainer.project_name="code_search" \
   trainer.run_name=${RUN_NAME} \
