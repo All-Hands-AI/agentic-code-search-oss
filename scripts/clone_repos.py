@@ -28,7 +28,6 @@ def clone_instance(
 
     # Skip if already exists
     if instance_path.exists():
-        print(f"  ✓ Instance {instance_id} already exists")
         return True
 
     try:
@@ -53,10 +52,8 @@ def clone_instance(
             text=True,
         )
 
-        print(f"  ✓ Cloned {instance_id} at commit {commit_id[:8]}")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"  ✗ Error cloning {instance_id}: {e.stderr}")
         return False
 
 
