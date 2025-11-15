@@ -47,6 +47,7 @@ from src.prompts.prompt_builder import get_instruction
 from src.utils.instance import clone_instance
 from src.rewards.file_localization import file_localization_f1_reward
 import logging
+import signal
 
 logger = get_logger(__name__)
 # logger.setLevel(logging.WARNING)
@@ -116,6 +117,16 @@ def init_and_run(
     conversation.send_message(input_message)
     print("Starting conversation...")
     try:
+
+        class TimeoutError(Exception):
+            pass
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Operation timed out")
+
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(60*5)  # 5 minute timeout
+
         logger.info("Conversation Starting")
         conversation.run()
     except Exception as e:
