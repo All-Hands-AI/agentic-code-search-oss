@@ -15,7 +15,7 @@ dependencies = [
     "openhands-tools",
     "openhands-agent-server",
     "openhands-workspace",
-    "vllm",
+    "vllm==0.11.0",
     "verifiers>=0.1.6.post0",
 ]
 
@@ -25,7 +25,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src", "agent-sdk"]
+include = ["src", "software-agent-sdk"]
 
 [dependency-groups]
 dev = [
@@ -62,8 +62,8 @@ torchvision = { index = "pytorch-cu128" }
 
 [tool.uv.workspace]
 members = [
-  "agent-sdk/openhands-sdk",
-  "agent-sdk/openhands-tools",
-  "agent-sdk/openhands-workspace",
-  "agent-sdk/openhands-agent-server",
+  "software-agent-sdk/openhands-sdk",
+  "software-agent-sdk/openhands-tools",
+  "software-agent-sdk/openhands-workspace",
+  "software-agent-sdk/openhands-agent-server",
 ]
