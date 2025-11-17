@@ -1,4 +1,5 @@
 import logging
+import textwrap
 import verifiers as vf
 from datasets import load_dataset
 
@@ -6,17 +7,75 @@ import src.tools as tools
 import src.rewards as rewards
 from src.prompts.system_prompt import SYSTEM_PROMPT
 from src.utils.get_instance import get_instance_path
+from src.environments.sandbox_env import SandboxEnv
 
 
 logger = logging.getLogger("swe-grep-oss")
 
 
-class SWEGrepEnv(vf.StatefulToolEnv):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+class SWEGrepEnv(SandboxEnv):
+    _REPO_URL = "https://github.com/astropy/astropy"
+    _REPO_DIR = "/workspace/repo"
+    _READY_FLAG = "/tmp/repo_ready"
 
-        self.add_tool(tools.bash, args_to_skip=["cwd"])
+    _START_COMMAND_TEMPLATE = textwrap.dedent(
+        """
+        sh -c '
+        set -eu
+
+        # install ast-grep
+        apk update
+        apk add --no-cache ast-grep
+
+        # clone if missing
+        if [ ! -d "{repo_dir}/.git" ]; then
+          mkdir -p "{repo_dir}"
+          git clone --depth 1 "{repo_url}" "{repo_dir}"
+        fi
+
+        # signal readiness and keep container alive
+        : > "{ready_flag}"
+        tail -f /dev/null
+        '
+        """
+    )
+
+    _READY_WAIT_SCRIPT = textwrap.dedent(
+        """
+        sh -c '
+        for i in $(seq 1 240); do
+          if [ -f "{ready_flag}" ]; then
+            exit 0
+          fi
+          sleep 0.5
+        done
+        echo "Sandbox failed to become ready" >&2
+        exit 1
+        '
+        """
+    )
+
+    def __init__(self, **kwargs):
+        start_command = self._START_COMMAND_TEMPLATE.format(
+            repo_url=self._REPO_URL,
+            repo_dir=self._REPO_DIR,
+            ready_flag=self._READY_FLAG,
+        )
+        super().__init__(
+            sandbox_name="swe-grep-oss-env",
+            docker_image="alpine/git",
+            start_command=start_command,
+            **kwargs,
+        )
+
+        # self.add_tool(tools.bash, args_to_skip=["cwd"])
         self.add_tool(tools.result)
+
+    async def setup_state(self, state: vf.State, **kwargs) -> vf.State:
+        state = await super().setup_state(state, **kwargs)
+        wait_script = self._READY_WAIT_SCRIPT.format(ready_flag=self._READY_FLAG)
+        await self.bash(wait_script, sandbox_id=state["sandbox_id"])
+        return state
 
     # async def is_completed(
     #     self, messages: vf.types.Messages, state: vf.types.State, **kwargs
@@ -36,16 +95,13 @@ class SWEGrepEnv(vf.StatefulToolEnv):
         state: vf.types.State,
         **kwargs,
     ) -> dict:
+        tool_args = super().update_tool_args(tool_name, tool_args, messages, state, **kwargs)
+
         if tool_name == "bash":
-            repo_path = get_instance_path(
-                {
-                    "repo": state["info"]["repo"],
-                    "instance_id": state["info"]["instance_id"],
-                }
-            )
-            updated_tool_args = dict(tool_args)
-            updated_tool_args["cwd"] = repo_path
-            return updated_tool_args
+            updated_args = dict(tool_args)
+            cmd = tool_args.get("command", "")
+            updated_args["command"] = f'cd "{self._REPO_DIR}" && {cmd}'
+            return updated_args
 
         return tool_args
 
