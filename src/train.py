@@ -54,8 +54,10 @@ class AsyncCodeSearchPPOExp(CodeSearchPPOExp):
 def skyrl_entrypoint(cfg: DictConfig):
     # make sure that the training loop is not run on the head node.
     if cfg.get("run_async_trainer", False):
+        print("Running async trainer")
         exp = AsyncCodeSearchPPOExp(cfg)
     else:
+        print("Running sync trainer")
         exp = CodeSearchPPOExp(cfg)
     exp.run()
 
