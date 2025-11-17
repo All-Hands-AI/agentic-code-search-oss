@@ -21,14 +21,11 @@ class AsyncRayPPOTrainer(RayPPOTrainer):
         """
         assert not self.colocate_all, "colocate_all is not supported for async training"
 
-        self.global_step = 0
-
         # Load checkpoint state if resumption is enabled
         if self.resume_mode != ResumeMode.NONE:
             with Timer("load_checkpoints"):
-                self.load_checkpoints()
+                self.global_step = self.load_checkpoints()
                 logger.info(f"Resumed training from global_step {self.global_step}")
-
         # Initialize weight sync state
         with Timer("init_weight_sync_state"):
             self.init_weight_sync_state()
