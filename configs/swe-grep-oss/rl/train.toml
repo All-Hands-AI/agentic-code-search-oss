@@ -1,4 +1,4 @@
-max_steps = 150
+max_steps = 50
 
 [model]
 name = "willcb/Qwen3-4B"
@@ -7,24 +7,19 @@ name = "willcb/Qwen3-4B"
 freq = 1
 
 [model.experimental.lora]
-rank = 16
-alpha = 32
+rank = 64
+alpha = 512
 dropout = 0.0
 target_modules = [
-    "q_proj",
-    "k_proj",
-    "v_proj",
-    "o_proj",
-    "gate_proj",
-    "up_proj",
-    "down_proj"
+    "q_proj",      # Attention: Query projection
+    "k_proj",      # Attention: Key projection
+    "v_proj",      # Attention: Value projection
+    "o_proj",      # Attention: Output projection
+    "gate_proj",   # MLP: Gating projection
+    "up_proj",     # MLP: Up projection
+    "down_proj"    # MLP: Down projection
 ]
-modules_to_save = [
-    "embed_tokens",
-    "norm",
-    "layernorm",
-    "lm_head$"
-]
+modules_to_save = []
 
 [optim]
 lr = 1e-5

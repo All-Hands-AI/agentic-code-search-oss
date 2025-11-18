@@ -219,7 +219,7 @@ def load_environment(
         # Parse the model's response
         predicted_files_str = parser.parse_answer(completion)
         if predicted_files_str is None:
-            return -2.0
+            return -1.0
 
         try:
             # Try to parse as JSON array
@@ -257,10 +257,56 @@ def load_environment(
         f1 = 2 * (precision * recall) / (precision + recall)
         return f1
 
+    # Reward that countr total no of turns with atleast 1 tool call
+    def turns_with_tool_calls(completion: vf.types.Messages) -> float:
+        """
+        Count the total number of turns with atleast 1 tool call.
+        """
+        if not isinstance(completion, list):
+            return 0.0
+
+        
+        count = 0
+        for message in completion:
+            if isinstance(message, dict) and "tool_calls" in message:
+                tool_calls = message.get("tool_calls", [])
+                if len(tool_calls) > 0:
+                    count += 1
+
+        if count == 0:
+            return 0
+        
+        return 1
+
+    # Reward to increase number of tool calls per turn
+    def tool_call_count_per_turn(completion: vf.types.Messages) -> float:
+        """
+        Count the number of tool calls per turn.
+        """
+        if not isinstance(completion, list):
+            return 0.0
+        
+        counts = []
+        for message in completion:
+            if isinstance(message, dict) and "tool_calls" in message:
+                tool_calls = message.get("tool_calls", [])
+                if tool_calls:
+                    counts.append(len(tool_calls))
+
+        if len(counts) == 0:
+            return 0.0
+
+        avg_count = sum(counts) / len(counts)
+
+        # clip it at 5 tool calls per turn
+        avg_count = min(5.0, avg_count) / 5.0
+
+        return avg_count
+
     # Define rubric with single F1 reward
     rubric = vf.Rubric(
-        funcs=[file_localization_reward],
-        weights=[1.0],
+        funcs=[file_localization_reward, turns_with_tool_calls, tool_call_count_per_turn],
+        weights=[1.0, 1.0, 1.0],
     )
     
     # Common environment configuration

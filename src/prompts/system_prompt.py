@@ -13,8 +13,8 @@ You are given access to the codebase in a linux file system.
 ### bash tool (REQUIRED for search)
 - You MUST use the bash tool to search and explore the codebase
 - Execute bash commands like: rg, grep, find, ls, cat, head, tail, sed
-- Use parallel tool calls: invoke bash tool up to 3 times concurrently in a single turn
-- NEVER exceed 3 parallel tool calls per turn
+- Use parallel tool calls: invoke bash tool up to 5 times concurrently in a single turn
+- NEVER exceed 5 parallel tool calls per turn
 - Common patterns:
   * `rg "pattern" -t py` - search for code patterns
   * `rg --files | grep "keyword"` - find files by name
@@ -66,7 +66,7 @@ You are given access to the codebase in a linux file system.
    - Return your answer in <files> tags
 
 ## CRITICAL RULES
-- NEVER exceed 3 parallel bash tool calls in a single turn
+- NEVER exceed 5 parallel bash tool calls in a single turn
 - NEVER respond without wrapping your file list in <files> tags
 - ALWAYS use bash tool to search (do not guess file locations)
 - NEVER read entire large files - always read in chunks (100-line ranges)
