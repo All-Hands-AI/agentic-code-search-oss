@@ -5,6 +5,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
+[tool.hatch.build]
+include = [
+    "swe_grep_oss_env.py"
+]
+
 [project]
 name = "agentic-code-search-oss"
 version = "0.1.0"

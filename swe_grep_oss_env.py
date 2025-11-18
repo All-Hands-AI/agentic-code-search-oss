@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+import traceback
 from typing import Literal
 import verifiers as vf
 from openai import AsyncOpenAI
@@ -48,21 +49,34 @@ class SWEGrepEnv(vf.StatefulToolEnv):
     ) -> tuple[vf.types.Messages, vf.types.State]:
         assert isinstance(messages, list)
 
-        tool_calls = messages[-1].get("tool_calls", [])
         tool_messages = []
+        tool_calls = messages[-1].get("tool_calls", [])
         for tool_call in tool_calls:
-            # Handle both ChatCompletionMessageToolCall objects and dicts
-            if isinstance(tool_call, vf.types.ChatCompletionMessageToolCall):
-                tool_name = tool_call.function.name
-                tool_args = json.loads(tool_call.function.arguments)
-                tool_call_id = tool_call.id or ""
-            elif isinstance(tool_call, dict):
-                tool_name = tool_call.get("function", {}).get("name") or tool_call.get("name")
-                tool_args_str = tool_call.get("function", {}).get("arguments") or tool_call.get("args", "{}")
-                tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
-                tool_call_id = tool_call.get("id", "")
-            else:
-                self.logger.warning(f"Unknown tool_call type: {type(tool_call)}")
+            tool_name: str = tool_call.get("function", {}).get("name", "")
+            tool_call_id: str = tool_call.get("id", "")
+            
+            arguments_str = tool_call.get("function", {}).get("arguments", "")
+            
+            try:
+                tool_args = json.loads(arguments_str)
+                
+                # Handle double-encoded JSON (when json.loads returns a string instead of dict)
+                if isinstance(tool_args, str):
+                    self.logger.warning(f"Double-encoded JSON detected, attempting to parse again: {tool_args[:100]}")
+                    tool_args = json.loads(tool_args)
+                
+                # Final check: must be a dict
+                if not isinstance(tool_args, dict):
+                    raise TypeError(f"Expected dict, got {type(tool_args).__name__}")
+                    
+            except (json.JSONDecodeError, TypeError) as e:
+                self.logger.error(f"Failed to parse tool arguments: {e}")
+                self.logger.error(f"Raw arguments: {repr(arguments_str)}")
+                tool_messages.append({
+                    "role": "tool",
+                    "content": f"Error: Invalid tool arguments - {str(e)}",
+                    "tool_call_id": tool_call_id,
+                })
                 continue
             
             tool_args = self.update_tool_args(
@@ -73,6 +87,7 @@ class SWEGrepEnv(vf.StatefulToolEnv):
             )
             tool_messages.append(tool_message)
         return tool_messages, state
+
 
     async def rollout(
         self,
@@ -116,16 +131,25 @@ class SWEGrepEnv(vf.StatefulToolEnv):
         state: vf.types.State,
         **kwargs,
     ) -> dict:
-        if tool_name == "bash":
-            repo_path = get_instance_path(
-                {
-                    "repo": state["info"]["repo"],
-                    "instance_id": state["info"]["instance_id"],
-                }
-            )
-            updated_tool_args = dict(tool_args)
-            updated_tool_args["cwd"] = repo_path
-            return updated_tool_args
+        try:
+            if tool_name == "bash":
+                repo_path = get_instance_path(
+                    {
+                        "repo": state["info"]["repo"],
+                        "instance_id": state["info"]["instance_id"],
+                    }
+                )
+                updated_tool_args = dict(tool_args)
+                updated_tool_args["cwd"] = repo_path
+                return updated_tool_args
+        except Exception as e:
+            # Add detailed logging
+            self.logger.error(f"update_tool_args called with tool_name={tool_name}")
+            self.logger.error(f"tool_args type: {type(tool_args)}")
+            self.logger.error(f"tool_args value: {repr(tool_args)}")
+            self.logger.error(f"messages: {messages}")
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            raise  # Re-raise to see the actual error
 
         return tool_args
 

@@ -1,5 +1,6 @@
 import argparse
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from datasets import load_dataset
@@ -90,6 +91,12 @@ def main():
         action="store_true",
         help="Show available fields in the dataset and exit",
     )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=4,
+        help="Maximum number of concurrent clone operations (default: 4)",
+    )
 
     args = parser.parse_args()
 
@@ -149,18 +156,32 @@ def main():
         print(f"(Limited to {args.max_instances} instances)")
 
     print(f"\nProcessing {len(instances_to_process)} instances")
+    print(f"Using {args.max_workers} concurrent workers")
     print("=" * 80)
 
-    # Clone each instance
+    # Clone each instance concurrently
     successful = 0
-    for instance in tqdm(instances_to_process, desc="Cloning instances"):
-        if clone_instance(
-            instance["repo"],
-            instance["base_commit"],
-            instance["instance_id"],
-            output_dir,
+    with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
+        # Submit all tasks
+        future_to_instance = {
+            executor.submit(
+                clone_instance,
+                instance["repo"],
+                instance["base_commit"],
+                instance["instance_id"],
+                output_dir,
+            ): instance
+            for instance in instances_to_process
+        }
+
+        # Process completed tasks with progress bar
+        for future in tqdm(
+            as_completed(future_to_instance),
+            total=len(instances_to_process),
+            desc="Cloning instances",
         ):
-            successful += 1
+            if future.result():
+                successful += 1
 
     print("\n" + "=" * 80)
     print("Summary:")

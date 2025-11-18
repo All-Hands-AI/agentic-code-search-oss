@@ -1,5 +1,5 @@
 batch_size = 48
-seq_len = 16000
+seq_len = 20000
 rollouts_per_example = 4
 max_steps = 150
 mask_truncated_completions = false
@@ -15,3 +15,8 @@ id = "swe-grep-oss-env"
 
 [ckpt]
 interval = 10
+
+[val]
+interval = 5
+num_examples = 20
+rollouts_per_example = 3
