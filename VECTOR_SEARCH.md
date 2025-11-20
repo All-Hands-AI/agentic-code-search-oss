@@ -174,6 +174,27 @@ Agent (openhands-sdk)
           └─> SentenceTransformers (embeddings)
 ```
 
+## Evaluation
+
+Evaluate file localization on SWE-bench Lite:
+
+```bash
+# Baseline (no semantic search)
+uv run python eval_swebench.py --num-instances 50
+
+# With semantic search
+uv run python eval_swebench.py --num-instances 50 --semantic
+
+# With local vLLM
+uv run python eval_swebench.py \
+    --num-instances 50 \
+    --semantic \
+    --model "deepseek-ai/deepseek-coder-33b-instruct" \
+    --base-url "http://localhost:8000"
+```
+
+See [EVALUATION.md](EVALUATION.md) for detailed evaluation guide.
+
 ## Testing
 
 ```bash
