@@ -17,6 +17,8 @@ dependencies = [
     "openhands-workspace",
     "vllm==0.11.0",
     "verifiers>=0.1.6.post0",
+    "qdrant-client>=1.15.1",
+    "tree-sitter>=0.25.2",
 ]
 
 [build-system]
