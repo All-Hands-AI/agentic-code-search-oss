@@ -34,6 +34,7 @@ The approach is to train a small language model using Reinforcement Learning (RL
 5. **Tooling Strategy:** The agent will use a set of tools to navigate the codebase. The focus is on:
     - **Diverse Tool Calls:** Implementing and evaluating tools beyond `grep`, such as Abstract Syntax Tree (AST) parsers for structural code analysis.
     - **Parallel Tool Calling:** Architecting the agent to execute multiple search queries simultaneously to reduce the number of sequential steps.
+    - **Semantic Search:** Vector-based code search using embeddings for finding code by meaning rather than exact keywords. See [VECTOR_SEARCH.md](VECTOR_SEARCH.md) for details.
 
 ## 4. Workstreams & Next Steps
 
