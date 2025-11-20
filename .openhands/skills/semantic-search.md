@@ -1,8 +1,14 @@
 ---
 name: Semantic Code Search
-trigger: always
-mcp_servers:
-  - semantic-code-search
+mcp_tools:
+  mcpServers:
+    semantic-code-search:
+      command: uv
+      args:
+        - run
+        - python
+        - src/mcp_server/semantic_search_server.py
+      env: {}
 ---
 
 # Semantic Code Search Skill

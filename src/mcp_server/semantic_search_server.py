@@ -20,7 +20,7 @@ except ImportError:
         "Please install MCP SDK: pip install mcp --break-system-packages"
     )
 
-from src.tools.semantic_search import SemanticSearchIndex
+from src.tools.semantic_search import SemanticSearch
 
 
 # Global state for the MCP server
@@ -160,7 +160,7 @@ async def handle_index_repository(arguments: dict[str, Any]) -> list[TextContent
     # Create or get index
     repo_key = str(repo_path)
     if repo_key not in indices or force_rebuild:
-        index = SemanticSearchIndex(
+        index = SemanticSearch(
             collection_name=f"code_index_{repo_path.name}",
             persist_directory=str(repo_path / ".vector_index"),
         )
@@ -210,7 +210,7 @@ async def handle_semantic_search(arguments: dict[str, Any]) -> list[TextContent]
     # Get or create index
     repo_key = str(repo_path)
     if repo_key not in indices:
-        index = SemanticSearchIndex(
+        index = SemanticSearch(
             collection_name=f"code_index_{repo_path.name}",
             persist_directory=str(repo_path / ".vector_index"),
         )
@@ -289,7 +289,7 @@ async def handle_get_index_stats(arguments: dict[str, Any]) -> list[TextContent]
     # Get or create index
     repo_key = str(repo_path)
     if repo_key not in indices:
-        index = SemanticSearchIndex(
+        index = SemanticSearch(
             collection_name=f"code_index_{repo_path.name}",
             persist_directory=str(repo_path / ".vector_index"),
         )
