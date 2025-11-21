@@ -3,11 +3,8 @@ name: Semantic Code Search
 mcp_tools:
   mcpServers:
     semantic-code-search:
-      command: uv
-      args:
-        - run
-        - python
-        - src/mcp_server/semantic_search_server.py
+      command: ./run_mcp_server.sh
+      args: []
       env: {}
 ---
 

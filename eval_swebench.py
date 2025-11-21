@@ -128,19 +128,16 @@ async def evaluate_instance(
         skill = Skill.load(".openhands/skills/semantic-search.md")
         context = AgentContext(skills=[skill])
 
-        # Configure MCP server for semantic search
-        # Use absolute path and set working directory for imports to work
-        import sys
+        # Configure MCP server with absolute path to wrapper
         from pathlib import Path as P
         script_dir = P(__file__).parent.resolve()
-        mcp_server_path = script_dir / "src" / "mcp_server" / "semantic_search_server.py"
+        wrapper_path = script_dir / "run_mcp_server.sh"
 
         mcp_config = {
             "mcpServers": {
                 "semantic-code-search": {
-                    "command": "uv",
-                    "args": ["run", "python", str(mcp_server_path)],
-                    "cwd": str(script_dir),  # Set working directory to project root
+                    "command": "bash",
+                    "args": [str(wrapper_path)],
                     "env": {}
                 }
             }
