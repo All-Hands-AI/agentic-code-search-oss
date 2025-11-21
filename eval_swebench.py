@@ -127,7 +127,26 @@ async def evaluate_instance(
     if use_semantic:
         skill = Skill.load(".openhands/skills/semantic-search.md")
         context = AgentContext(skills=[skill])
-        agent = Agent(llm=llm, agent_context=context)
+
+        # Configure MCP server for semantic search
+        # Use absolute path and set working directory for imports to work
+        import sys
+        from pathlib import Path as P
+        script_dir = P(__file__).parent.resolve()
+        mcp_server_path = script_dir / "src" / "mcp_server" / "semantic_search_server.py"
+
+        mcp_config = {
+            "mcpServers": {
+                "semantic-code-search": {
+                    "command": "uv",
+                    "args": ["run", "python", str(mcp_server_path)],
+                    "cwd": str(script_dir),  # Set working directory to project root
+                    "env": {}
+                }
+            }
+        }
+
+        agent = Agent(llm=llm, agent_context=context, mcp_config=mcp_config)
     else:
         agent = Agent(llm=llm)
 
@@ -204,11 +223,13 @@ async def main(
     # Configure LLM
     if base_url:
         # Local vLLM (OpenAI-compatible)
-        # For vLLM, we don't use custom_llm_provider - let base_url handle routing
+        # Prefix model with 'openai/' to tell litellm to use OpenAI-compatible API
+        vllm_model = f"openai/{model}" if not model.startswith("openai/") else model
         llm = LLM(
-            model=model,
+            model=vllm_model,
             base_url=f"{base_url}/v1",
             api_key=SecretStr("dummy"),
+            custom_llm_provider="openai",
             temperature=0.0,
         )
     else:
