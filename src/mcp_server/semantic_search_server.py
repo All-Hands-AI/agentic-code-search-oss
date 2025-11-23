@@ -1,340 +1,414 @@
+"""
+MCP Server for Semantic Code Search.
+
+This server exposes semantic search capabilities through the Model Context Protocol (MCP),
+allowing AI agents to perform vector-based code search.
+"""
+
+import json
 import os
+import hashlib
+import subprocess
 from pathlib import Path
-from typing import Optional, List
+from typing import Any, Optional
 
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer, CrossEncoder
-import numpy as np
-
-from tree_sitter import Language, Parser
-import tree_sitter_python as tspython
-PY_LANGUAGE = Language(tspython.language())
-parser = Parser(PY_LANGUAGE)
-
-
-class SemanticSearch:
-    """Vector index + reranker for semantic code search (fully local)."""
-
-    def __init__(
-        self,
-        embedding_model_name: str = "jinaai/jina-code-embeddings-0.5b",
-        reranker_model_name: Optional[str] = "jinaai/jina-reranker-v3",
-        collection_name: str = "code_index",
-        persist_directory: str = "./.vector_index",
-        max_chunk_size: int = 512,
-    ):
-        self.embedding_model_name = embedding_model_name
-        self.reranker_model_name = reranker_model_name
-        self.collection_name = collection_name
-        self.persist_directory = persist_directory
-        self.max_chunk_size = max_chunk_size
-
-        # Initialize models
-        self.embedder = SentenceTransformer(embedding_model_name)
-        if reranker_model_name:
-            self.reranker = CrossEncoder(reranker_model_name)
-        else:
-            self.reranker = None
-
-        # Initialize ChromaDB PersistentClient
-        self.client = chromadb.PersistentClient(
-            path=persist_directory,
-            settings=Settings(anonymized_telemetry=False),
-        )
-
-        # Get or create collection
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
-
-    # ---------------------------
-    # Indexing
-    # ---------------------------
-    def index_code_files(
-        self,
-        repo_path: str,
-        file_extensions: Optional[List[str]] = None,
-    ) -> dict:
-        if file_extensions is None:
-            file_extensions = [".py"]
-
-        repo_path = Path(repo_path)
-        if not repo_path.exists():
-            raise ValueError(f"Repository path does not exist: {repo_path}")
-
-        # Collect files
-        ignore_dirs = {".git", "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv", "env"}
-        files_to_index = []
-        for ext in file_extensions:
-            files_to_index.extend(repo_path.rglob(f"*{ext}"))
-
-        files_to_index = [f for f in files_to_index if not any(d in f.parts for d in ignore_dirs)]
-
-        documents = []
-        metadatas = []
-        ids = []
-
-        for file_path in files_to_index:
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                # Chunk file
-                chunks = self._chunk_text(content, self.max_chunk_size)
-                for idx, chunk in enumerate(chunks):
-                    relative_path = str(file_path.relative_to(repo_path))
-                    doc_id = f"{relative_path}::{idx}"
-
-                    documents.append(chunk)
-                    metadatas.append({
-                        "file_path": relative_path,
-                        "chunk_index": idx,
-                        "total_chunks": len(chunks),
-                        "file_type": file_path.suffix
-                    })
-                    ids.append(doc_id)
-            except Exception as e:
-                print(f"Warning: Could not index {file_path}: {e}")
-                continue
-
-        # Add embeddings in batches
-        batch_size = 100
-        for i in range(0, len(documents), batch_size):
-            batch_docs = documents[i:i + batch_size]
-            batch_metas = metadatas[i:i + batch_size]
-            batch_ids = ids[i:i + batch_size]
-
-            embeddings = self.embedder.encode(
-                batch_docs,
-                normalize_embeddings=True,
-                show_progress_bar=False,
-                convert_to_numpy=True
-            ).tolist()
-            self.collection.add(documents=batch_docs, metadatas=batch_metas, ids=batch_ids, embeddings=embeddings)
-
-        return {
-            "indexed_files": len(files_to_index),
-            "total_chunks": len(documents),
-            "collection_name": self.collection_name
-        }
-
-    # ---------------------------
-    # Searching
-    # ---------------------------
-    def search(self, query: str, n_results: int = 10, filter_metadata: Optional[dict] = None) -> list[dict]:
-        # Generate query embedding
-        query_emb = self.embedder.encode(
-            query,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-            convert_to_numpy=True
-        ).tolist()
-
-        # Initial vector search (retrieve more for reranking)
-        n_retrieve = n_results * 5 if self.reranker else n_results
-        
-        results = self.collection.query(
-            query_embeddings=[query_emb],
-            n_results=n_retrieve,
-            where=filter_metadata,
-        )
-
-        formatted_results = []
-        if results["documents"] and results["documents"][0]:
-            for i in range(len(results["documents"][0])):
-                formatted_results.append({
-                    "file_path": results["metadatas"][0][i]["file_path"],
-                    "chunk_index": results["metadatas"][0][i]["chunk_index"],
-                    "content": results["documents"][0][i],
-                    "similarity_score": 1 - results["distances"][0][i],
-                    "metadata": results["metadatas"][0][i]
-                })
-
-        # Rerank if reranker exists
-        if self.reranker and formatted_results:
-            texts = [r["content"] for r in formatted_results]
-            pairs = [(query, text) for text in texts]
-            rerank_scores = self.reranker.predict(pairs)
-            
-            # Update scores and re-sort
-            for i, score in enumerate(rerank_scores):
-                formatted_results[i]["rerank_score"] = float(score)
-            
-            formatted_results.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
-        
-        return formatted_results[:n_results]
-
-    # ---------------------------
-    # Utilities
-    # ---------------------------
-    def get_unique_files(self, search_results: list[dict]) -> list[str]:
-        seen = set()
-        unique_files = []
-        for r in search_results:
-            fp = r["file_path"]
-            if fp not in seen:
-                seen.add(fp)
-                unique_files.append(fp)
-        return unique_files
-
-    def _chunk_text(self, text: str, max_size: int) -> list[str]:
-        """Chunk text using tree-sitter if available, else line-based."""
-        
-        # Fallback to simple chunking if tree-sitter not available
-        if parser is None:
-            return self._chunk_lines_simple(text, max_size)
-        
-        try:
-            tree = parser.parse(bytes(text, "utf8"))
-            root_node = tree.root_node
-
-            chunks = []
-
-            # Helper: chunk text by lines when too large
-            def chunk_lines(block_text, max_size):
-                lines = block_text.split("\n")
-                out_chunks = []
-                current_chunk = []
-                current_size = 0
-                for line in lines:
-                    line_size = len(line) + 1  # +1 for newline
-                    if current_size + line_size > max_size and current_chunk:
-                        out_chunks.append("\n".join(current_chunk))
-                        current_chunk = [line]
-                        current_size = line_size
-                    else:
-                        current_chunk.append(line)
-                        current_size += line_size
-                if current_chunk:
-                    out_chunks.append("\n".join(current_chunk))
-                return out_chunks
-
-            # Extract function and class definitions
-            for node in root_node.children:
-                if node.type in ("function_definition", "class_definition"):
-                    start, end = node.start_byte, node.end_byte
-                    block = text[start:end]
-                    if len(block) <= max_size:
-                        chunks.append(block)
-                    else:
-                        chunks.extend(chunk_lines(block, max_size))
-
-            # Handle code between functions/classes
-            covered_ranges = [
-                (node.start_byte, node.end_byte)
-                for node in root_node.children
-                if node.type in ("function_definition", "class_definition")
-            ]
-            
-            last = 0
-            for start, end in sorted(covered_ranges):
-                if last < start:
-                    leftover = text[last:start]
-                    if leftover.strip():
-                        chunks.extend(chunk_lines(leftover, max_size))
-                last = end
-            
-            if last < len(text):
-                leftover = text[last:]
-                if leftover.strip():
-                    chunks.extend(chunk_lines(leftover, max_size))
-
-            return chunks
-            
-        except Exception as e:
-            # Fallback if tree-sitter parsing fails
-            print(f"Warning: tree-sitter parsing failed, using simple chunking: {e}")
-            return self._chunk_lines_simple(text, max_size)
-    
-    def _chunk_lines_simple(self, text: str, max_size: int) -> list[str]:
-        """Simple line-based chunking fallback."""
-        lines = text.split("\n")
-        chunks = []
-        current_chunk = []
-        current_size = 0
-        
-        for line in lines:
-            line_size = len(line) + 1
-            if current_size + line_size > max_size and current_chunk:
-                chunks.append("\n".join(current_chunk))
-                current_chunk = [line]
-                current_size = line_size
-            else:
-                current_chunk.append(line)
-                current_size += line_size
-        
-        if current_chunk:
-            chunks.append("\n".join(current_chunk))
-        
-        return chunks
-
-    def clear_index(self):
-        """Clear the entire index."""
-        self.client.delete_collection(self.collection_name)
-        self.collection = self.client.get_or_create_collection(
-            name=self.collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
-
-    def get_stats(self) -> dict:
-        """Get index statistics."""
-        return {
-            "collection_name": self.collection_name,
-            "total_documents": self.collection.count(),
-            "embedding_model": self.embedding_model_name,
-            "persist_directory": self.persist_directory
-        }
-
-
-# Tool function for verifiers integration
-def semantic_search(
-    query: str,
-    repo_path: str,
-    n_results: int = 10,
-    rebuild_index: bool = False,
-) -> str:
-    """
-    Search code semantically using natural language.
-    
-    Args:
-        query: Natural language description
-        repo_path: Path to repository
-        n_results: Number of results
-        rebuild_index: Force rebuild
-    
-    Returns:
-        Formatted string with results
-    """
-    from pathlib import Path
-    
-    repo_path_obj = Path(repo_path)
-    if not repo_path_obj.exists():
-        return f"Error: Repository not found: {repo_path}"
-    
-    # Create index
-    index = SemanticSearch(
-        collection_name=f"code_index_{repo_path_obj.name}",
-        persist_directory=str(repo_path_obj / ".vector_index"),
+try:
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+    from mcp.types import Tool, TextContent, EmbeddedResource
+except ImportError as e:
+    raise ImportError(
+        f"Please install MCP SDK: uv pip install mcp fastmcp\nError: {e}"
     )
-    
-    # Check if needs indexing
-    stats = index.get_stats()
-    if stats["total_documents"] == 0 or rebuild_index:
-        print(f"Indexing {repo_path}...")
-        index.index_code_files(str(repo_path))
-    
-    # Search
+
+from src.tools.semantic_search import SemanticSearch
+
+
+# Global state for the MCP server
+server = Server("semantic-code-search")
+indices = {}  # Store indices per repository
+
+
+def get_workspace_path() -> str:
+    """Get workspace path from environment variable."""
+    workspace = os.getenv("WORKSPACE_PATH")
+    if not workspace:
+        raise ValueError(
+            "WORKSPACE_PATH environment variable not set. "
+            "Please configure the MCP server with the workspace path."
+        )
+    return workspace
+
+
+def get_cache_dir() -> Path:
+    """Get cache directory for persistent indices."""
+    cache_dir = os.getenv("INDEX_CACHE_DIR")
+    if cache_dir:
+        return Path(cache_dir)
+    # Default to persistent cache location
+    return Path.home() / ".cache" / "swebench_indices"
+
+
+def get_repo_info(repo_path: Path) -> tuple[str, str]:
+    """Extract repo name and commit hash from git repository."""
+    try:
+        # Get current commit
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        commit = result.stdout.strip()
+
+        # Get remote URL to extract repo name
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        url = result.stdout.strip()
+
+        # Parse repo name from URL (e.g., https://github.com/owner/repo.git -> owner/repo)
+        if "github.com" in url:
+            parts = url.rstrip(".git").split("/")
+            repo_name = "/".join(parts[-2:])
+        else:
+            repo_name = repo_path.name
+
+        return repo_name, commit
+    except Exception:
+        # Fallback: use directory name
+        return repo_path.name, "unknown"
+
+
+def get_repo_commit_hash(repo_name: str, commit: str) -> str:
+    """Get unique hash for (repo, commit) pair for index keying."""
+    key = f"{repo_name}:{commit}"
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    """List available MCP tools."""
+    return [
+        Tool(
+            name="index_repository",
+            description=(
+                "Index a code repository for semantic search. "
+                "This creates a vector index of all code files in the repository. "
+                "Should be called once before searching."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Path to repository (optional, defaults to current workspace)",
+                    },
+                    "file_extensions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "File extensions to index (e.g., ['.py', '.js'])",
+                        "default": [".py"],
+                    },
+                    "force_rebuild": {
+                        "type": "boolean",
+                        "description": "Force rebuild the index even if it exists",
+                        "default": False,
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="semantic_search",
+            description=(
+                "Search a repository using semantic similarity. "
+                "Finds code based on natural language descriptions, not just keywords. "
+                "More powerful than grep for finding code by meaning. "
+                "Example: 'function that parses git diffs' or 'code for calculating precision and recall'"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language description of what you're looking for",
+                    },
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Path to repository (optional, defaults to current workspace)",
+                    },
+                    "n_results": {
+                        "type": "integer",
+                        "description": "Number of results to return",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50,
+                    },
+                    "return_content": {
+                        "type": "boolean",
+                        "description": "Whether to return full code content or just file paths",
+                        "default": True,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        Tool(
+            name="get_index_stats",
+            description=(
+                "Get statistics about an indexed repository, "
+                "including number of indexed files and chunks."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Path to repository (optional, defaults to current workspace)",
+                    },
+                },
+                "required": [],
+            },
+        ),
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle tool calls."""
+
+    try:
+        if name == "index_repository":
+            return await handle_index_repository(arguments)
+        elif name == "semantic_search":
+            return await handle_semantic_search(arguments)
+        elif name == "get_index_stats":
+            return await handle_get_index_stats(arguments)
+        else:
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Error: Unknown tool '{name}'",
+                )
+            ]
+    except Exception as e:
+        return [
+            TextContent(
+                type="text",
+                text=f"Error executing {name}: {str(e)}",
+            )
+        ]
+
+
+async def handle_index_repository(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle repository indexing."""
+    repo_path = Path(arguments.get("repo_path") or get_workspace_path()).resolve()
+    file_extensions = arguments.get("file_extensions", [".py"])
+    force_rebuild = arguments.get("force_rebuild", False)
+
+    if not repo_path.exists():
+        return [
+            TextContent(
+                type="text",
+                text=f"Error: Repository path does not exist: {repo_path}",
+            )
+        ]
+
+    # Get repo info for proper cache keying
+    repo_name, commit = get_repo_info(repo_path)
+    repo_commit_hash = get_repo_commit_hash(repo_name, commit)
+
+    # Use persistent cache directory keyed by (repo, commit)
+    cache_dir = get_cache_dir()
+    persist_dir = cache_dir / repo_commit_hash
+    persist_dir.mkdir(parents=True, exist_ok=True)
+
+    # Key by (repo, commit) hash for reuse across instances
+    repo_key = repo_commit_hash
+    if repo_key not in indices or force_rebuild:
+        index = SemanticSearch(
+            collection_name=f"code_{repo_commit_hash}",
+            persist_directory=str(persist_dir),
+        )
+
+        if force_rebuild:
+            index.clear_index()
+
+        # Index the repository
+        stats = index.index_code_files(
+            str(repo_path), file_extensions=file_extensions
+        )
+        indices[repo_key] = index
+
+        result = (
+            f"Successfully indexed repository: {repo_name}@{commit[:8]}\n"
+            f"Files indexed: {stats['indexed_files']}\n"
+            f"Total chunks: {stats['total_chunks']}\n"
+            f"Cache key: {repo_commit_hash}\n"
+            f"Cache dir: {persist_dir}"
+        )
+    else:
+        index = indices[repo_key]
+        stats = index.get_stats()
+        result = (
+            f"Repository already indexed: {repo_name}@{commit[:8]}\n"
+            f"Total documents: {stats['total_documents']}\n"
+            f"Cache key: {repo_commit_hash}\n"
+            f"Use force_rebuild=true to rebuild the index"
+        )
+
+    return [TextContent(type="text", text=result)]
+
+
+async def handle_semantic_search(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle semantic search."""
+    query = arguments["query"]
+    repo_path = Path(arguments.get("repo_path") or get_workspace_path()).resolve()
+    n_results = arguments.get("n_results", 10)
+    return_content = arguments.get("return_content", True)
+
+    if not repo_path.exists():
+        return [
+            TextContent(
+                type="text",
+                text=f"Error: Repository path does not exist: {repo_path}",
+            )
+        ]
+
+    # Get repo info for proper cache keying
+    repo_name, commit = get_repo_info(repo_path)
+    repo_commit_hash = get_repo_commit_hash(repo_name, commit)
+
+    # Use persistent cache directory keyed by (repo, commit)
+    cache_dir = get_cache_dir()
+    persist_dir = cache_dir / repo_commit_hash
+    persist_dir.mkdir(parents=True, exist_ok=True)
+
+    repo_key = repo_commit_hash
+    if repo_key not in indices:
+        index = SemanticSearch(
+            collection_name=f"code_{repo_commit_hash}",
+            persist_directory=str(persist_dir),
+        )
+        indices[repo_key] = index
+
+        # Check if index exists
+        stats = index.get_stats()
+        if stats["total_documents"] == 0:
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Error: Repository not indexed. Please call index_repository first.",
+                )
+            ]
+    else:
+        index = indices[repo_key]
+
+    # Perform search
     results = index.search(query, n_results=n_results)
-    
+
     if not results:
-        return f"No results found for query: {query}"
-    
-    # Format output
+        return [
+            TextContent(
+                type="text",
+                text=f"No results found for query: {query}",
+            )
+        ]
+
+    # Format results
+    output_lines = [f"Found {len(results)} relevant code chunks for: '{query}'\n"]
+
+    for i, result in enumerate(results, 1):
+        similarity = result["similarity_score"]
+        file_path = result["file_path"]
+        chunk_idx = result["chunk_index"]
+        total_chunks = result["metadata"]["total_chunks"]
+
+        output_lines.append(
+            f"\n{i}. {file_path} (similarity: {similarity:.3f})"
+        )
+        output_lines.append(f"   Chunk {chunk_idx + 1}/{total_chunks}")
+
+        if return_content:
+            # Show content with limited preview
+            content = result["content"]
+            lines = content.split("\n")
+            if len(lines) > 20:
+                preview = "\n".join(lines[:20])
+                output_lines.append(f"\n{preview}\n   ... ({len(lines)} total lines)")
+            else:
+                output_lines.append(f"\n{content}")
+
+    # Add unique files summary
     unique_files = index.get_unique_files(results)
-    output = f"Found {len(unique_files)} relevant files:\n\n"
-    for file in unique_files:
-        output += f"- {file}\n"
-    
-    return output
+    output_lines.append(f"\n\nUnique files ({len(unique_files)}):")
+    for file_path in unique_files:
+        output_lines.append(f"  - {file_path}")
+
+    result_text = "\n".join(output_lines)
+
+    return [TextContent(type="text", text=result_text)]
+
+
+async def handle_get_index_stats(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle getting index statistics."""
+    repo_path = Path(arguments.get("repo_path") or get_workspace_path()).resolve()
+
+    if not repo_path.exists():
+        return [
+            TextContent(
+                type="text",
+                text=f"Error: Repository path does not exist: {repo_path}",
+            )
+        ]
+
+    # Get repo info for proper cache keying
+    repo_name, commit = get_repo_info(repo_path)
+    repo_commit_hash = get_repo_commit_hash(repo_name, commit)
+
+    # Use persistent cache directory keyed by (repo, commit)
+    cache_dir = get_cache_dir()
+    persist_dir = cache_dir / repo_commit_hash
+    persist_dir.mkdir(parents=True, exist_ok=True)
+
+    repo_key = repo_commit_hash
+    if repo_key not in indices:
+        index = SemanticSearch(
+            collection_name=f"code_{repo_commit_hash}",
+            persist_directory=str(persist_dir),
+        )
+        indices[repo_key] = index
+    else:
+        index = indices[repo_key]
+
+    stats = index.get_stats()
+
+    result = (
+        f"Index Statistics for {repo_name}@{commit[:8]}:\n"
+        f"Cache key: {repo_commit_hash}\n"
+        f"Total documents: {stats['total_documents']}\n"
+        f"Embedding model: {stats['embedding_model']}\n"
+        f"Cache directory: {persist_dir}"
+    )
+
+    return [TextContent(type="text", text=result)]
+
+
+async def main():
+    """Run the MCP server."""
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            server.create_initialization_options(),
+        )
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(main())

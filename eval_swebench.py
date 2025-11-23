@@ -138,7 +138,9 @@ async def evaluate_instance(
                 "semantic-code-search": {
                     "command": "bash",
                     "args": [str(wrapper_path)],
-                    "env": {}
+                    "env": {
+                        "WORKSPACE_PATH": str(repo_path)
+                    }
                 }
             }
         }

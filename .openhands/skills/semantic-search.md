@@ -1,11 +1,5 @@
 ---
 name: Semantic Code Search
-mcp_tools:
-  mcpServers:
-    semantic-code-search:
-      command: ./run_mcp_server.sh
-      args: []
-      env: {}
 ---
 
 # Semantic Code Search
@@ -14,10 +8,9 @@ Find code by meaning, not just keywords. Three MCP tools available:
 
 ## Tools
 
-**`index_repository`** - Index a repo (call once)
+**`index_repository`** - Index the current workspace (call once)
 ```json
 {
-  "repo_path": "/workspace/repo",
   "file_extensions": [".py"],
   "force_rebuild": false
 }
@@ -27,7 +20,6 @@ Find code by meaning, not just keywords. Three MCP tools available:
 ```json
 {
   "query": "validation logic for email addresses",
-  "repo_path": "/workspace/repo",
   "n_results": 15,
   "return_content": true
 }
@@ -35,9 +27,7 @@ Find code by meaning, not just keywords. Three MCP tools available:
 
 **`get_index_stats`** - Check index status
 ```json
-{
-  "repo_path": "/workspace/repo"
-}
+{}
 ```
 
 ## When to Use

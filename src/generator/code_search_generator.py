@@ -88,6 +88,39 @@ def init_and_run(
     error = None
     messages = []
 
+    # Configure semantic search if enabled
+    use_semantic_search = generator_cfg.get("use_semantic_search", False)
+    mcp_config = None
+    agent_context = None
+
+    if use_semantic_search:
+        from openhands.sdk.context.skills import Skill
+        from openhands.sdk import AgentContext
+
+        # Load semantic search skill
+        script_dir = Path(__file__).parent.parent.resolve()
+        skill_path = script_dir / ".openhands" / "skills" / "semantic-search.md"
+        skill = Skill.load(str(skill_path))
+
+        # Use training-optimized MCP wrapper (delegates to Ray actor)
+        wrapper_path = script_dir / "run_mcp_server_training.sh"
+
+        mcp_config = {
+            "mcpServers": {
+                "semantic-code-search": {
+                    "command": "bash",
+                    "args": [str(wrapper_path)],
+                    "env": {
+                        "WORKSPACE_PATH": str(working_dir),
+                        "RAY_ADDRESS": os.environ.get("RAY_ADDRESS", "auto"),
+                    }
+                }
+            }
+        }
+
+        agent_context = AgentContext(skills=[skill])
+        print(f"[Episode {instance_id}] Semantic search enabled")
+
     agent = Agent(
         llm=LLM(
             service_id="agent",
@@ -100,6 +133,8 @@ def init_and_run(
                 "include_stop_str_in_output": True,
             }
         ),
+        agent_context=agent_context,
+        mcp_config=mcp_config,
         # tools=get_planning_tools(),
         tools=get_default_tools(enable_browser=False),
         # system_prompt_filename=os.path.join(os.path.dirname(__file__), "..", "prompts", "templates", "system_message_search.j2"),
