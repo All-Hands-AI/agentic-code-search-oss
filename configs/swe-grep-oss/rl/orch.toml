@@ -1,7 +1,7 @@
-batch_size = 24
-seq_len = 16000
-rollouts_per_example = 8
-max_steps = 50
+batch_size = 64
+seq_len = 8000
+rollouts_per_example = 4
+max_steps = 150
 mask_truncated_completions = false
 
 [wandb]

@@ -41,7 +41,7 @@ def bash(command: str, cwd: Optional[str] = None) -> str:
             shell=True,
             capture_output=True,
             text=True,
-            timeout=30,  # 30 second timeout
+            timeout=60,  # 30 second timeout
             cwd=cwd,  # Set working directory
         )
 

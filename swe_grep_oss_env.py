@@ -219,7 +219,7 @@ def load_environment(
         # Parse the model's response
         predicted_files_str = parser.parse_answer(completion)
         if predicted_files_str is None:
-            return -1.0
+            return -2.0
 
         try:
             # Try to parse as JSON array
@@ -306,7 +306,7 @@ def load_environment(
     # Define rubric with single F1 reward
     rubric = vf.Rubric(
         funcs=[file_localization_reward, turns_with_tool_calls, tool_call_count_per_turn],
-        weights=[1.0, 1.0, 1.0],
+        weights=[1.0, 0.0, 0.0],
     )
     
     # Common environment configuration

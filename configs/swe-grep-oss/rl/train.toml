@@ -1,4 +1,4 @@
-max_steps = 50
+max_steps = 150
 
 [model]
 name = "willcb/Qwen3-4B"
