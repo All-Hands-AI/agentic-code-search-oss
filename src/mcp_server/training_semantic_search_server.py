@@ -109,9 +109,9 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="semantic_search",
             description=(
-                "Search a repository using semantic similarity (training-optimized). "
-                "Uses shared embedding service for fast inference. "
-                "Requires pre-computed indices (run preindex_swebench.py first)."
+                "Search the current repository using semantic similarity. "
+                "Automatically uses the workspace repository. "
+                "Fast CPU-based indexing with caching."
             ),
             inputSchema={
                 "type": "object",
@@ -119,10 +119,6 @@ async def list_tools() -> list[Tool]:
                     "query": {
                         "type": "string",
                         "description": "Natural language description of what you're looking for",
-                    },
-                    "repo_path": {
-                        "type": "string",
-                        "description": "Path to repository (optional, defaults to current workspace)",
                     },
                     "n_results": {
                         "type": "integer",
@@ -136,6 +132,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
     ]
+
 
 
 @server.call_tool()
@@ -161,77 +158,114 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
 
 async def handle_semantic_search(arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle semantic search using shared embedding service."""
+    """Handle semantic search with proper isolation."""
     query = arguments["query"]
-    repo_path = Path(arguments.get("repo_path") or get_workspace_path()).resolve()
+    repo_path = Path(get_workspace_path()).resolve()
     n_results = arguments.get("n_results", 10)
-
+    print(f"[Semantic Search] Resolved repo path: {repo_path}")
+    print(f"[Semantic Search] Repo exists: {repo_path.exists()}")
+    
+    if repo_path.exists():
+        # List some files to verify
+        py_files = list(repo_path.rglob("*.py"))[:5]
+        print(f"[Semantic Search] Sample Python files: {[str(f.relative_to(repo_path)) for f in py_files]}")
+    
     if not repo_path.exists():
-        return [
-            TextContent(
-                type="text",
-                text=f"Error: Repository path does not exist: {repo_path}",
-            )
-        ]
+        return [TextContent(type="text", text=f"Error: Repository path does not exist: {repo_path}")]
 
     # Get repo info
     repo_name, commit = get_repo_info(repo_path)
+    repo_commit_hash = get_repo_commit_hash(repo_name, commit)
 
-    # Get embedding service reference
-    service = get_embedding_service_ref()
-
-    # Delegate to service (FAST - no model loading!)
+    # FIX: Use process-specific directory to avoid collisions
+    import os
+    worker_id = os.getpid()
+    
+    cache_dir = Path(f"/data/user_data/sanidhyv/tmp/embedding_cache/{repo_commit_hash}")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    from src.tools.semantic_search import SemanticSearch
+    
     try:
-        results = ray.get(service.search.remote(query, repo_name, commit, n_results))
-    except Exception as e:
-        return [
-            TextContent(
-                type="text",
-                text=f"Error: {str(e)}\nMake sure to run pre-indexing: python preindex_swebench.py",
-            )
-        ]
-
-    if not results:
-        return [
-            TextContent(
-                type="text",
-                text=f"No results found for query: {query}",
-            )
-        ]
-
-    # Format results
-    output_lines = [f"Found {len(results)} relevant code chunks for: '{query}'\n"]
-
-    for i, result in enumerate(results, 1):
-        similarity = result.get("rerank_score", result.get("similarity_score", 0))
-        file_path = result["file_path"]
-        chunk_idx = result["chunk_index"]
-        total_chunks = result["metadata"]["total_chunks"]
-
-        output_lines.append(
-            f"\n{i}. {file_path} (similarity: {similarity:.3f})"
+        # Create or load index
+        index = SemanticSearch(
+            collection_name=f"code_{repo_commit_hash}",  # Unique per repo
+            persist_directory=str(cache_dir),
+            device="cpu",
+            embedding_model_name="all-MiniLM-L6-v2",
+            reranker_model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            num_threads=4,  # Reduced from 8 to avoid CPU contention
         )
-        output_lines.append(f"   Chunk {chunk_idx + 1}/{total_chunks}")
-
-        # Show content preview
-        content = result["content"]
-        lines = content.split("\n")
-        if len(lines) > 20:
-            preview = "\n".join(lines[:20])
-            output_lines.append(f"\n{preview}\n   ... ({len(lines)} total lines)")
+        
+        # Check if already indexed
+        stats = index.get_stats()
+        if stats["total_documents"] == 0:
+            # Index with test exclusion
+            print(f"[Semantic Search Worker {worker_id}] Indexing {repo_name}...")
+            exclude_patterns = [
+                "test", "tests", "__pycache__", ".pytest_cache",
+                "node_modules", ".venv", "venv", "env", ".git",
+                "test_", "tests_", "testing", ".tox", "docs", "examples",
+            ]
+            
+            index_stats = index.index_code_files(
+                str(repo_path), 
+                file_extensions=[".py"], 
+                batch_size=32,  # Reduced from 64
+                exclude_patterns=exclude_patterns
+            )
+            print(f"[Semantic Search Worker {worker_id}] Indexed {index_stats['total_chunks']} chunks from {index_stats['indexed_files']} files")
         else:
-            output_lines.append(f"\n{content}")
-
-    # Add unique files summary
-    unique_files = list(set(r["file_path"] for r in results))
-    output_lines.append(f"\n\nUnique files ({len(unique_files)}):")
-    for file_path in unique_files:
-        output_lines.append(f"  - {file_path}")
-
-    result_text = "\n".join(output_lines)
-
-    return [TextContent(type="text", text=result_text)]
-
+            print(f"[Semantic Search Worker {worker_id}] Using cached index with {stats['total_documents']} chunks")
+        
+        # Double-check we have data
+        stats = index.get_stats()
+        if stats["total_documents"] == 0:
+            return [TextContent(
+                type="text", 
+                text=f"No Python files found to index in {repo_path} (after excluding tests)"
+            )]
+        
+        # Perform search with reranking
+        results = index.search(query, n_results=n_results, use_reranker=True)
+        
+        # Format results
+        if not results:
+            return [TextContent(type="text", text=f"No results found for query: {query}")]
+        
+        output_lines = [f"Found {len(results)} relevant code chunks for: '{query}'\n"]
+        
+        for i, result in enumerate(results, 1):
+            similarity = result.get("rerank_score", result.get("similarity_score", 0))
+            score_type = "rerank" if "rerank_score" in result else "similarity"
+            file_path = result["file_path"]
+            chunk_idx = result["chunk_index"]
+            total_chunks = result["metadata"]["total_chunks"]
+            
+            output_lines.append(f"\n{i}. {file_path} ({score_type}: {similarity:.3f})")
+            output_lines.append(f"   Chunk {chunk_idx + 1}/{total_chunks}")
+            
+            content = result["content"]
+            lines = content.split("\n")
+            if len(lines) > 20:
+                preview = "\n".join(lines[:20])
+                output_lines.append(f"\n{preview}\n   ... ({len(lines)} total lines)")
+            else:
+                output_lines.append(f"\n{content}")
+        
+        unique_files = list(set(r["file_path"] for r in results))
+        output_lines.append(f"\n\nUnique files ({len(unique_files)}):")
+        for file_path in unique_files:
+            output_lines.append(f"  - {file_path}")
+        
+        result_text = "\n".join(output_lines)
+        return [TextContent(type="text", text=result_text)]
+    
+    except Exception as e:
+        import traceback
+        error_msg = f"Error in semantic search: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        return [TextContent(type="text", text=f"Error executing semantic_search: {str(e)}")]
 
 async def main():
     """Run the MCP server."""

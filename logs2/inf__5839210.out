@@ -1,0 +1,135 @@
+============================================================
+vLLM Server Access Information
+============================================================
+
+1. LOCAL ACCESS (same machine):
+   http://localhost:8000/v1
+   http://127.0.0.1:8000/v1
+
+2. LOCAL NETWORK ACCESS:
+
+   Available IP addresses on this machine:
+   ✅ http://10.1.1.115:8000/v1
+   ✅ http://172.16.1.115:8000/v1
+
+3. HOSTNAME ACCESS:
+   http://babel-o5-16:8000/v1
+   (May require DNS/hosts file configuration)
+
+4. DOCKER CONTAINER ACCESS:
+   From containers on same host: http://host.docker.internal:8000/v1
+
+5. PUBLIC/INTERNET ACCESS:
+   To access from the internet, you need:
+   - Port forwarding on your router (forward port 8000)
+   - Your public IP address (see below)
+
+   Checking your public IP address...
+   ✅ Your public IP: 66.212.145.178
+   After port forwarding: http://66.212.145.178:8000/v1
+   (Requires router configuration - see below)
+
+============================================================
+TESTING YOUR SERVER
+============================================================
+
+Test from same machine:
+  curl http://localhost:8000/health
+
+Test from another machine on your network:
+  curl http://YOUR_LOCAL_IP:8000/health
+
+Test with Python:
+  python test_vllm_server.py
+
+============================================================
+FIREWALL CONFIGURATION
+============================================================
+
+CentOS/RHEL - Allow port 8000:
+  sudo firewall-cmd --permanent --add-port=8000/tcp
+  sudo firewall-cmd --reload
+
+============================================================
+ROUTER PORT FORWARDING (for internet access)
+============================================================
+
+To access from the internet:
+1. Log into your router admin panel (usually 192.168.1.1 or 192.168.0.1)
+2. Find 'Port Forwarding' or 'Virtual Server' settings
+3. Add a new rule:
+   - External Port: 8000
+   - Internal IP: YOUR_LOCAL_IP (from section 2 above)
+   - Internal Port: 8000
+   - Protocol: TCP
+4. Save and apply
+
+Security Warning: Opening ports to the internet has security risks.
+Consider using SSH tunneling or VPN for remote access instead.
+
+============================================================
+OPENHANDS CONFIGURATION
+============================================================
+
+For local OpenHands (same machine):
+  [llm]
+  model = "openai/gpt-oss-20b"
+  base_url = "http://localhost:8000/v1"
+  api_key = "dummy-key"
+
+For OpenHands on another machine:
+  [llm]
+  model = "openai/gpt-oss-20b"
+  base_url = "http://10.1.1.115:8000/v1"
+  api_key = "dummy-key"
+
+============================================================
+============================================================
+Starting vLLM OpenAI-Compatible Server
+============================================================
+Model: openai/gpt-oss-20b
+Host: 0.0.0.0 (accessible from external machines)
+Port: 8000
+GPUs: 2 (tensor parallelism)
+GPU Memory: 0.9%
+Max Context: 2048 tokens
+Data Type: float16
+============================================================
+
+API Endpoints will be available at:
+  - Chat: http://0.0.0.0:8000/v1/chat/completions
+  - Completions: http://0.0.0.0:8000/v1/completions
+  - Models: http://0.0.0.0:8000/v1/models
+  - Health: http://0.0.0.0:8000/health
+
+For external access, use: http://10.1.1.115:8000
+============================================================
+
+Starting server (this will download the model on first run)...
+
+INFO 11-29 00:13:21 [__init__.py:216] Automatically detected platform cuda.
+[1;36m(APIServer pid=1710012)[0;0m INFO 11-29 00:13:28 [api_server.py:1839] vLLM API server version 0.11.0
+[1;36m(APIServer pid=1710012)[0;0m INFO 11-29 00:13:28 [utils.py:233] non-default args: {'model_tag': 'openai/gpt-oss-20b', 'host': '0.0.0.0', 'model': 'openai/gpt-oss-20b', 'trust_remote_code': True, 'tensor_parallel_size': 2}
+[1;36m(APIServer pid=1710012)[0;0m INFO 11-29 00:13:29 [model.py:547] Resolved architecture: GptOssForCausalLM
+[1;36m(APIServer pid=1710012)[0;0m INFO 11-29 00:13:29 [model.py:1510] Using max model len 131072
+[1;36m(APIServer pid=1710012)[0;0m INFO 11-29 00:13:30 [scheduler.py:205] Chunked prefill is enabled with max_num_batched_tokens=2048.
+[1;36m(APIServer pid=1710012)[0;0m INFO 11-29 00:13:30 [config.py:271] Overriding max cuda graph capture size to 992 for performance.
+INFO 11-29 00:13:35 [__init__.py:216] Automatically detected platform cuda.
+[1;36m(EngineCore_DP0 pid=1710587)[0;0m INFO 11-29 00:13:40 [core.py:644] Waiting for init message from front-end.
+[1;36m(EngineCore_DP0 pid=1710587)[0;0m INFO 11-29 00:13:40 [core.py:77] Initializing a V1 LLM engine (v0.11.0) with config: model='openai/gpt-oss-20b', speculative_config=None, tokenizer='openai/gpt-oss-20b', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=True, dtype=torch.bfloat16, max_seq_len=131072, download_dir=None, load_format=auto, tensor_parallel_size=2, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=mxfp4, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='openai_gptoss'), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None), seed=0, served_model_name=openai/gpt-oss-20b, enable_prefix_caching=True, chunked_prefill_enabled=True, pooler_config=None, compilation_config={"level":3,"debug_dump_path":"","cache_dir":"","backend":"","custom_ops":[],"splitting_ops":["vllm.unified_attention","vllm.unified_attention_with_output","vllm.mamba_mixer2","vllm.mamba_mixer","vllm.short_conv","vllm.linear_attention","vllm.plamo2_mamba_mixer","vllm.gdn_attention","vllm.sparse_attn_indexer"],"use_inductor":true,"compile_sizes":[],"inductor_compile_config":{"enable_auto_functionalized_v2":false},"inductor_passes":{},"cudagraph_mode":[2,1],"use_cudagraph":true,"cudagraph_num_of_warmups":1,"cudagraph_capture_sizes":[992,976,960,944,928,912,896,880,864,848,832,816,800,784,768,752,736,720,704,688,672,656,640,624,608,592,576,560,544,528,512,496,480,464,448,432,416,400,384,368,352,336,320,304,288,272,256,248,240,232,224,216,208,200,192,184,176,168,160,152,144,136,128,120,112,104,96,88,80,72,64,56,48,40,32,24,16,8,4,2,1],"cudagraph_copy_inputs":false,"full_cuda_graph":false,"use_inductor_graph_partition":false,"pass_config":{},"max_capture_size":992,"local_cache_dir":null}
+[1;36m(EngineCore_DP0 pid=1710587)[0;0m WARNING 11-29 00:13:40 [multiproc_executor.py:720] Reducing Torch parallelism from 16 threads to 1 to avoid unnecessary CPU contention. Set OMP_NUM_THREADS in the external environment to tune this value as needed.
+[1;36m(EngineCore_DP0 pid=1710587)[0;0m INFO 11-29 00:13:40 [shm_broadcast.py:289] vLLM message queue communication handle: Handle(local_reader_ranks=[0, 1], buffer_handle=(2, 16777216, 10, 'psm_6e4ade0b'), local_subscribe_addr='ipc:///tmp/4a2f2592-9a39-4ea7-a574-8dbccbb6b2fb', remote_subscribe_addr=None, remote_addr_ipv6=False)
+INFO 11-29 00:13:43 [__init__.py:216] Automatically detected platform cuda.
+INFO 11-29 00:13:43 [__init__.py:216] Automatically detected platform cuda.
+INFO 11-29 00:13:50 [shm_broadcast.py:289] vLLM message queue communication handle: Handle(local_reader_ranks=[0], buffer_handle=(1, 10485760, 10, 'psm_ebe12e84'), local_subscribe_addr='ipc:///tmp/f12159d7-8dc4-4842-aad1-69810e57e181', remote_subscribe_addr=None, remote_addr_ipv6=False)
+INFO 11-29 00:13:50 [shm_broadcast.py:289] vLLM message queue communication handle: Handle(local_reader_ranks=[0], buffer_handle=(1, 10485760, 10, 'psm_839922fe'), local_subscribe_addr='ipc:///tmp/b76cb88d-e9a8-430d-85bb-353154607782', remote_subscribe_addr=None, remote_addr_ipv6=False)
+[Gloo] Rank 0 is connected to 1 peer ranks. Expected number of connected peer ranks is : 1
+[Gloo] Rank 1 is connected to 1 peer ranks. Expected number of connected peer ranks is : 1
+[Gloo] Rank 0 is connected to 1 peer ranks. Expected number of connected peer ranks is : 1
+[Gloo] Rank 1 is connected to 1 peer ranks. Expected number of connected peer ranks is : 1
+INFO 11-29 00:13:51 [__init__.py:1384] Found nccl from library libnccl.so.2
+INFO 11-29 00:13:51 [__init__.py:1384] Found nccl from library libnccl.so.2
+INFO 11-29 00:13:51 [pynccl.py:103] vLLM is using nccl==2.27.3
+INFO 11-29 00:13:51 [pynccl.py:103] vLLM is using nccl==2.27.3
+INFO 11-29 12:24:52 [multiproc_executor.py:558] Parent process exited, terminating worker
+INFO 11-29 12:24:52 [multiproc_executor.py:558] Parent process exited, terminating worker

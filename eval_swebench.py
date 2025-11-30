@@ -56,38 +56,65 @@ def extract_files_from_patch(patch: str) -> list[str]:
 
 
 def extract_files_from_response(response: str) -> list[str]:
-    """Extract file paths from agent response."""
+    """Extract file paths from agent response - handle multiple formats."""
+    import re
+    
     files = []
-
-    # Look for common file patterns
-    patterns = [
-        r'[\w/\-\.]+\.py',
-        r'[\w/\-\.]+\.js',
-        r'[\w/\-\.]+\.ts',
-        r'[\w/\-\.]+\.java',
-        r'[\w/\-\.]+\.cpp',
-        r'[\w/\-\.]+\.c',
-        r'[\w/\-\.]+\.go',
-        r'[\w/\-\.]+\.rb',
-    ]
-
-    for pattern in patterns:
-        matches = re.findall(pattern, response)
-        files.extend(matches)
-
+    
+    # Pattern 1: Clean paths (one per line)
+    # src/file.py
+    pattern1 = r'^[\w/\-\.]+\.(py|js|java|cpp|c|go|rb|ts|jsx|tsx)$'
+    
+    # Pattern 2: Markdown list with paths
+    # - path/to/file.py (description)
+    pattern2 = r'[-*]\s+([\w/\-\.]+\.(py|js|java|cpp|c|go|rb|ts|jsx|tsx))'
+    
+    # Pattern 3: Backtick wrapped
+    # `path/to/file.py`
+    pattern3 = r'`([\w/\-\.]+\.(py|js|java|cpp|c|go|rb|ts|jsx|tsx))`'
+    
+    # Pattern 4: Just paths with word boundaries
+    pattern4 = r'\b([\w/\-]+\.(py|js|java|cpp|c|go|rb|ts|jsx|tsx))\b'
+    
+    for line in response.split('\n'):
+        line = line.strip()
+        
+        # Try pattern 1 (clean paths)
+        if re.match(pattern1, line):
+            files.append(line)
+            continue
+        
+        # Try pattern 2 (markdown list)
+        match = re.search(pattern2, line)
+        if match:
+            files.append(match.group(1))
+            continue
+        
+        # Try pattern 3 (backticks)
+        match = re.search(pattern3, line)
+        if match:
+            files.append(match.group(1))
+            continue
+    
+    # If no matches yet, try pattern 4 on full text (more lenient)
+    if not files:
+        matches = re.findall(pattern4, response)
+        files = [m[0] for m in matches]
+    
     # Deduplicate while preserving order
     seen = set()
     unique_files = []
     for f in files:
-        # Clean up the file path
-        f = f.strip('`"\'')
+        # Clean up
+        f = f.strip('`"\'.,;: ')
+        # Remove common prefixes
+        f = f.lstrip('./')
+        
         if f and f not in seen and not f.startswith('http'):
             seen.add(f)
             unique_files.append(f)
-
+    
     return unique_files
-
-
 def calculate_metrics(predicted: list[str], gold: list[str]) -> dict:
     """Calculate precision, recall, and F1."""
     pred_set = set(predicted)
@@ -165,7 +192,7 @@ Your task:
 2. Search the codebase to find ALL files that need modification
 3. List the file paths (relative to repo root), one per line
 
-""" + ("You have semantic_search tool - use it to find code by meaning.\n" if use_semantic else "Use grep/find to search the codebase.\n")
+""" + ("You have semantic_search tool and bash terminal - use it to find code by meaning.\n" if use_semantic else "Use grep/find to search the codebase.\n")
 
     task = f"{system_hint}\nProblem:\n{instance['problem_statement']}\n\nList the files:"
 

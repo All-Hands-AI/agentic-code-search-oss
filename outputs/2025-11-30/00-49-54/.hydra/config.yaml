@@ -1,0 +1,307 @@
+data:
+  train_data:
+  - data/SWE-Gym__SWE-Gym_train/train.parquet
+  val_data:
+  - data/SWE-Gym__SWE-Gym_train/validation.parquet
+trainer:
+  placement:
+    colocate_all: true
+    colocate_policy_ref: true
+    policy_num_nodes: 1
+    policy_num_gpus_per_node: 8
+    critic_num_nodes: 1
+    critic_num_gpus_per_node: 4
+    ref_num_nodes: 1
+    ref_num_gpus_per_node: 8
+  sequence_parallel_backend: ulysses
+  strategy: fsdp2
+  policy:
+    model:
+      path: Qwen/Qwen3-4B
+      lora:
+        rank: 0
+        alpha: 16
+        dropout: 0
+        lora_sync_path: /tmp/skyrl_lora_sync
+    deepspeed_config: ${deepspeed_config.train}
+    optimizer_config:
+      lr: 1.0e-06
+      adam_betas:
+      - 0.9
+      - 0.999
+      weight_decay: 0.01
+      max_grad_norm: 1.0
+      offload_after_step: true
+      num_warmup_steps: 0
+      scheduler: constant_with_warmup
+    fsdp_config:
+      cpu_offload: false
+      reshard_after_forward: true
+      fsdp_size: -1
+    sequence_parallel_size: 8
+    use_torch_compile: false
+    record_memory: false
+    megatron_config:
+      tensor_model_parallel_size: 1
+      pipeline_model_parallel_size: 1
+      context_parallel_size: 1
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: null
+      ddp_config:
+        grad_reduce_in_fp32: true
+        overlap_grad_reduce: false
+        overlap_param_gather: false
+        average_in_collective: true
+      model_config_kwargs: {}
+      torch_profiler_config:
+        enable: false
+        ranks: []
+        save_path: null
+      optimizer_config_kwargs:
+        overlap_cpu_optimizer_d2h_h2d: false
+        use_precision_aware_optimizer: false
+        optimizer_cpu_offload: false
+        optimizer_offload_fraction: 0.0
+      transformer_config_kwargs:
+        recompute_granularity: null
+        recompute_modules:
+        - core_attn
+        recompute_method: null
+        recompute_num_layers: null
+  ref:
+    model:
+      path: ${trainer.policy.model.path}
+    sequence_parallel_size: 1
+    deepspeed_config: ${deepspeed_config.eval}
+    fsdp_config:
+      cpu_offload: false
+      reshard_after_forward: true
+      fsdp_size: -1
+    megatron_config:
+      tensor_model_parallel_size: 1
+      pipeline_model_parallel_size: 1
+      context_parallel_size: 1
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: 1
+      model_config_kwargs: {}
+      transformer_config_kwargs: {}
+  critic:
+    model:
+      path: null
+      lora:
+        rank: 0
+        alpha: 16
+        dropout: 0
+    deepspeed_config: ${deepspeed_config.train}
+    optimizer_config:
+      lr: 5.0e-06
+      adam_betas:
+      - 0.9
+      - 0.999
+      weight_decay: 0.01
+      max_grad_norm: 1.0
+      offload_after_step: true
+      num_warmup_steps: 0
+      scheduler: constant_with_warmup
+    fsdp_config:
+      cpu_offload: false
+      reshard_after_forward: true
+      fsdp_size: -1
+    sequence_parallel_size: 1
+  algorithm:
+    advantage_estimator: grpo
+    kl_ctrl:
+      type: fixed
+      kl_target: 0.1
+      horizon: 10000
+    kl_estimator_type: k3
+    use_kl_estimator_k3: false
+    use_abs_kl: false
+    use_kl_in_reward: false
+    use_kl_loss: false
+    kl_loss_coef: 0.001
+    use_entropy_loss: false
+    entropy_loss_coef: 0.01
+    advantage_batch_normalize: false
+    value_head_prefix: value_head
+    policy_loss_type: regular
+    loss_reduction: token_mean
+    grpo_norm_by_std: true
+    lambd: 1.0
+    gamma: 1.0
+    eps_clip_low: 0.2
+    eps_clip_high: 0.2
+    clip_ratio_c: 3.0
+    tis_imp_ratio_cap: -1.0
+    use_tis: false
+    value_clip: 0.2
+    dynamic_sampling:
+      type: null
+      max_sample_batches: 30
+      min_replace_ratio: 0.3
+    clip_cov:
+      clip_ratio: 0.0002
+      clip_cov_lb: 1.0
+      clip_cov_ub: 5.0
+    kl_cov:
+      kl_cov_frac: 0.2
+      ppo_kl_coef: 1.0
+    cispo:
+      cispo_eps_clip_low: 0
+      cispo_eps_clip_high: 5
+  gradient_checkpointing: true
+  gradient_checkpointing_use_reentrant: false
+  seed: 42
+  resume_mode: null
+  resume_path: null
+  ckpt_path: /data/user_data/sanidhyv/grep/train
+  max_ckpts_to_keep: -1
+  ckpt_interval: 100
+  hf_save_interval: -1
+  export_path: ${oc.env:HOME}/exports/
+  bf16: true
+  epochs: 20
+  update_epochs_per_batch: 1
+  train_batch_size: 2
+  policy_mini_batch_size: 2
+  critic_mini_batch_size: 256
+  micro_train_batch_size_per_gpu: 2
+  micro_forward_batch_size_per_gpu: 2
+  update_ref_every_epoch: false
+  use_sample_packing: true
+  eval_batch_size: 100
+  eval_before_train: false
+  eval_interval: 100
+  max_prompt_length: 4096
+  flash_attn: true
+  disable_fast_tokenizer: false
+  target_modules: all-linear
+  exclude_modules: null
+  project_name: code_search
+  run_name: code_search_Qwen-Qwen3-4B
+  logger: wandb
+  dump_data_batch: true
+  dump_eval_results: true
+  rope_scaling: null
+  rope_theta: null
+generator:
+  model_name: ${trainer.policy.model.path}
+  model_dtype: bfloat16
+  run_engines_locally: true
+  num_inference_engines: 8
+  backend: vllm
+  weight_sync_backend: nccl
+  weight_transfer_threshold_cuda_ipc_GB: 1.0
+  inference_engine_tensor_parallel_size: 1
+  inference_engine_pipeline_parallel_size: 1
+  inference_engine_expert_parallel_size: 1
+  inference_engine_data_parallel_size: 1
+  n_samples_per_prompt: 4
+  async_engine: true
+  batched: true
+  max_input_length: 14000
+  vllm_v1_disable_multiproc: true
+  enable_prefix_caching: true
+  enable_chunked_prefill: true
+  max_num_batched_tokens: 36000
+  enforce_eager: true
+  fully_sharded_loras: false
+  gpu_memory_utilization: 0.4
+  max_num_seqs: 1024
+  remote_inference_engine_urls:
+  - 127.0.0.1:8001
+  enable_http_endpoint: true
+  http_endpoint_host: 0.0.0.0
+  http_endpoint_port: 8080
+  max_turns: 20
+  chat_template:
+    source: name
+    name_or_path: null
+  chat_template_kwargs: {}
+  engine_init_kwargs:
+    enable_auto_tool_choice: true
+    tool_call_parser: hermes
+    max_model_len: 16384
+  override_existing_update_group: auto
+  sampling_params:
+    max_generate_length: 2048
+    repetition_penalty: 1.0
+    temperature: 1.0
+    top_p: 1.0
+    min_p: 0.0
+    top_k: -1
+    logprobs: null
+    stop: null
+  use_conversation_multi_turn: true
+  append_eos_token_after_stop_str_in_multi_turn: true
+  eval_sampling_params:
+    max_generate_length: ${generator.sampling_params.max_generate_length}
+    repetition_penalty: 1.0
+    temperature: 0.0
+    top_p: 1.0
+    min_p: 0.0
+    top_k: -1
+    logprobs: null
+    stop: null
+  eval_n_samples_per_prompt: 1
+  zero_reward_on_non_stop: false
+  apply_overlong_filtering: false
+  rope_scaling: ${trainer.rope_scaling}
+  rope_theta: ${trainer.rope_theta}
+  traj_dir: /data/user_data/sanidhyv/grep/train/trajectories/
+  semantic_search: true
+environment:
+  env_class: gsm8k
+  skyrl_gym:
+    max_env_workers: 32
+    text2sql:
+      db_path: /home/ray/default/sql_data
+    llm_as_a_judge:
+      model: gpt-4o-mini
+      base_url: null
+    search:
+      log_requests: false
+      search_url: http://127.0.0.1:8000/retrieve
+      topk: 3
+      timeout: 30
+deepspeed_config:
+  train:
+    zero_optimization:
+      stage: 3
+      offload_param:
+        device: none
+      offload_optimizer:
+        device: none
+        pin_memory: true
+      sub_group_size: auto
+      reduce_bucket_size: auto
+      stage3_param_persistence_threshold: auto
+      stage3_prefetch_bucket_size: auto
+      stage3_max_live_parameters: auto
+      stage3_max_reuse_distance: auto
+      round_robin_gradients: true
+      zero_hpz_partition_size: 1
+      zero_quantized_weights: false
+      zero_quantized_gradients: false
+    torch_autocast:
+      enabled: true
+      dtype: bfloat16
+    disable_trace_cache: false
+    data_types:
+      grad_accum_dtype: fp32
+    gradient_clipping: 1.0
+    wall_clock_breakdown: false
+    prescale_gradient: false
+  eval:
+    zero_optimization:
+      stage: 3
+      stage3_param_persistence_threshold: auto
+      offload_param:
+        device: cpu
+        pin_memory: true
+    torch_autocast:
+      enabled: true
+      dtype: bfloat16
+    gradient_clipping: 1.0
+    prescale_gradient: false
+    wall_clock_breakdown: false

@@ -1,0 +1,33 @@
+======================================
+GPU Allocation Verification:
+  Policy GPUs: 8
+  Inference GPUs: 8
+  Match: YES ✓
+======================================
+Starting RL Training (Working Config)
+Model: Qwen/Qwen3-4B
+Max Length: 2048
+N Rollouts: 8
+Network: enp3s0f3u1
+======================================
+Unable to disable persistence mode for GPU 00000000:01:00.0: Insufficient Permissions
+Unable to disable persistence mode for GPU 00000000:24:00.0: Insufficient Permissions
+Unable to disable persistence mode for GPU 00000000:41:00.0: Insufficient Permissions
+Unable to disable persistence mode for GPU 00000000:61:00.0: Insufficient Permissions
+Unable to disable persistence mode for GPU 00000000:81:00.0: Insufficient Permissions
+Unable to disable persistence mode for GPU 00000000:A1:00.0: Insufficient Permissions
+Unable to disable persistence mode for GPU 00000000:C1:00.0: Insufficient Permissions
+Unable to disable persistence mode for GPU 00000000:E1:00.0: Insufficient Permissions
+[stdout] 488806ed51ce13c9e18e35df972b4814c66c2744
+Cleaning up temporary files...
+Removing testbed workspaces...
+✓ Testbed cleanup complete
+Removing old embedding caches (>7 days)...
+✓ Embedding cache cleanup complete
+Removing orphaned lock files...
+✓ Lock file cleanup complete
+Cleaning Ray temp files...
+✓ Ray cleanup complete
+Cleanup complete!
+Cleaning embedding cache older than 7 days...
+Done!
