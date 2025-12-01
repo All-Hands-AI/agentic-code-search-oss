@@ -9,11 +9,8 @@
 #SBATCH --output=/home/sanidhyv/agentic-code-search-oss/logs/%x__%j.out
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --exclusive
 
-# ========================================
 # Cache Configuration
-# ========================================
 export UV_CACHE_DIR="/data/user_data/sanidhyv/.cache/uv"
 export HF_HOME="/data/user_data/sanidhyv/.cache/huggingface"
 export TRANSFORMERS_CACHE="/data/user_data/sanidhyv/.cache/transformers"
@@ -24,9 +21,7 @@ export RAY_TMPDIR="/data/user_data/sanidhyv/ray_temp_grep"
 
 mkdir -p "$UV_CACHE_DIR" "$HF_HOME" "$TRANSFORMERS_CACHE" "$TORCH_HOME" "$TMPDIR" "$RAY_TMPDIR"
 
-# ========================================
 # NCCL Configuration
-# ========================================
 NETWORK_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
 export NCCL_SOCKET_IFNAME=$NETWORK_INTERFACE
 export NCCL_IB_DISABLE=1
@@ -56,25 +51,17 @@ MAX_LENGTH=2048
 export WANDB_API_KEY=bd054e89bc6dc33ce731d090da4a87bffa973032
 export WANDB_PROJECT="grep"
 
-# Resource allocation - FIXED: Match inference GPUs to policy GPUs
+# Resource allocation 
 NUM_GPUS=8
 NNODES=1
-NUM_INFERENCE_ENGINES=8  # CRITICAL: Changed from 4 to 8
-TP_SIZE=1  # Each engine uses 1 GPU
+NUM_INFERENCE_ENGINES=8  
+TP_SIZE=1  
 LOGGER=wandb
 RUN_NAME="code_search_${MODEL_ALIAS}"
 
-# Verify: 8 policy GPUs = 8 inference GPUs (8 engines × 1 TP)
-echo "======================================"
-echo "GPU Allocation Verification:"
-echo "  Policy GPUs: $NUM_GPUS"
-echo "  Inference GPUs: $((NUM_INFERENCE_ENGINES * TP_SIZE))"
-echo "  Match: $([[ $NUM_GPUS -eq $((NUM_INFERENCE_ENGINES * TP_SIZE)) ]] && echo 'YES ✓' || echo 'NO ✗')"
-echo "======================================"
-
 mkdir -p $CKPT_PATH $CKPT_PATH/trajectories logs
 export RAY_object_store_memory=$((50 * 1024 * 1024 * 1024))  # 50GB
-export RAY_memory_monitor_refresh_ms=0  # Disable memory monitoring
+export RAY_memory_monitor_refresh_ms=0  
 export RAY_object_spilling_config='{"type":"filesystem","params":{"directory_path":"/data/user_data/sanidhyv/ray_spill"}}'
 
 mkdir -p /data/user_data/sanidhyv/ray_spill
@@ -83,14 +70,7 @@ echo "Starting RL Training (Working Config)"
 echo "Model: $MODEL"
 echo "Max Length: $MAX_LENGTH"
 echo "N Rollouts: $N_ROLLOUTS"
-echo "Network: $NETWORK_INTERFACE"
 echo "======================================"
-
-# GPU Reset
-for gpu in {0..7}; do
-    nvidia-smi -i $gpu --gpu-reset 2>/dev/null || true
-done
-sleep 5
 
 # Cleanup
 cleanup() {
@@ -101,7 +81,7 @@ trap cleanup EXIT INT TERM
 
 set -x
 
-# Launch training with MATCHED GPU counts
+# Launch training 
 CUDA_LAUNCH_BLOCKING=1 uv run --isolated -m src.train \
   data.train_data=["data/SWE-Gym__SWE-Gym_train/train.parquet"] \
   data.val_data=["data/SWE-Gym__SWE-Gym_train/validation.parquet"] \
@@ -155,31 +135,27 @@ CUDA_LAUNCH_BLOCKING=1 uv run --isolated -m src.train \
 
 CACHE_DIR="/data/user_data/sanidhyv/tmp/embedding_cache"
 MAX_AGE_DAYS=7
-#!/bin/bash
-
 # Clean up temporary files from training/eval
-
 echo "Cleaning up temporary files..."
-
 # Remove old workspaces (testbed_*)
 echo "Removing testbed workspaces..."
 find /data/user_data/sanidhyv/tmp -maxdepth 1 -type d -name "testbed_*" -mtime +1 -exec rm -rf {} + 2>/dev/null
-echo "✓ Testbed cleanup complete"
+echo "Testbed cleanup complete"
 
 # Remove old embedding caches (keep recent ones for reuse)
 echo "Removing old embedding caches (>7 days)..."
 find /data/user_data/sanidhyv/tmp/embedding_cache -maxdepth 1 -type d -mtime +7 -exec rm -rf {} + 2>/dev/null
-echo "✓ Embedding cache cleanup complete"
+echo "Embedding cache cleanup complete"
 
 # Remove orphaned lock files
 echo "Removing orphaned lock files..."
 find /data/user_data/sanidhyv/tmp/embedding_cache -name ".lock" -mtime +1 -delete 2>/dev/null
-echo "✓ Lock file cleanup complete"
+echo "Lock file cleanup complete"
 
 # Clean Ray temp files
 echo "Cleaning Ray temp files..."
 find /data/user_data/sanidhyv/ray_temp_grep -type f -name "*.log" -mtime +3 -delete 2>/dev/null
-echo "✓ Ray cleanup complete"
+echo "Ray cleanup complete"
 
 echo "Cleanup complete!"
 echo "Cleaning embedding cache older than ${MAX_AGE_DAYS} days..."

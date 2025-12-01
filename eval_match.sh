@@ -8,9 +8,7 @@
 #SBATCH --error=/home/sanidhyv/agentic-code-search-oss/logs/%x__%j.err
 #SBATCH --output=/home/sanidhyv/agentic-code-search-oss/logs/%x__%j.out
 
-# ========================================
 # Cache Configuration
-# ========================================
 export UV_CACHE_DIR="/data/user_data/sanidhyv/.cache/uv"
 export HF_HOME="/data/user_data/sanidhyv/.cache/huggingface"
 export TRANSFORMERS_CACHE="/data/user_data/sanidhyv/.cache/transformers"
@@ -21,9 +19,7 @@ export RAY_TMPDIR="/data/user_data/sanidhyv/ray_temp_eval"
 
 mkdir -p "$UV_CACHE_DIR" "$HF_HOME" "$TRANSFORMERS_CACHE" "$TORCH_HOME" "$TMPDIR" "$RAY_TMPDIR"
 
-# ========================================
 # Environment
-# ========================================
 export CUDA_VISIBLE_DEVICES=0
 export TOKENIZERS_PARALLELISM=false
 export PYTHONPATH="/home/sanidhyv/agentic-code-search-oss:$PYTHONPATH"
@@ -35,13 +31,11 @@ USE_SEMANTIC="${USE_SEMANTIC:-true}"
 PORT=8080
 VLLM_LOG="/tmp/vllm_server_${SLURM_JOB_ID:-$$}.log"
 
-echo "======================================"
 echo "Base Model Evaluation"
 echo "Model: $MODEL"
 echo "Instances: $NUM_INSTANCES"
 echo "Semantic Search: $USE_SEMANTIC"
 echo "vLLM Log: $VLLM_LOG"
-echo "======================================"
 
 # Cleanup function
 cleanup() {
@@ -125,7 +119,7 @@ while [ $WAITED -lt $MAX_WAIT ]; do
         break
     fi
     
-    # Alternative: check /v1/models endpoint
+    # check /v1/models endpoint
     if curl -s http://localhost:$PORT/v1/models 2>/dev/null | grep -q "data"; then
         echo ""
         echo "✓ Server models endpoint responding!"
@@ -168,24 +162,8 @@ if [ "$READY" != "true" ]; then
     echo "ERROR: vLLM server failed to become ready within $MAX_WAIT seconds"
     echo ""
     echo "Full vLLM log:"
-    echo "=================================================="
     cat "$VLLM_LOG"
-    echo "=================================================="
     exit 1
-fi
-
-# Double-check with explicit test
-echo ""
-echo "Verifying server is responding..."
-sleep 2
-
-MODELS_RESPONSE=$(curl -s http://localhost:$PORT/v1/models 2>&1)
-if echo "$MODELS_RESPONSE" | grep -q "data"; then
-    echo "✓ Models endpoint working!"
-    echo "$MODELS_RESPONSE" | python3 -m json.tool 2>/dev/null || echo "$MODELS_RESPONSE"
-else
-    echo "WARNING: Models endpoint returned unexpected response:"
-    echo "$MODELS_RESPONSE"
 fi
 
 # Test with a simple completion
@@ -213,11 +191,7 @@ else
 fi
 
 # Run evaluation
-echo ""
-echo "======================================"
 echo "Starting Evaluation"
-echo "======================================"
-echo ""
 
 cd /home/sanidhyv/agentic-code-search-oss
 
@@ -234,12 +208,8 @@ fi
 
 EXIT_CODE=$?
 
-echo ""
-echo "======================================"
 echo "Evaluation Complete"
-echo "======================================"
 echo "Exit code: $EXIT_CODE"
 echo "vLLM log: $VLLM_LOG"
-echo ""
 
 exit $EXIT_CODE

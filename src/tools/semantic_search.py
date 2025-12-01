@@ -1,22 +1,23 @@
-# src/tools/semantic_search.py
 import os
 from pathlib import Path
 from typing import Optional, List
-
+from tqdm import tqdm
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import numpy as np
+import sys
 
-# Fix tree_sitter import for newer versions
+def log(msg: str):
+    """Log to stderr to avoid polluting stdout when used in MCP server."""
+    print(msg, file=sys.stderr, flush=True)
 try:
     from tree_sitter import Language, Parser
     import tree_sitter_python as tspython
     PY_LANGUAGE = Language(tspython.language())
     parser = Parser(PY_LANGUAGE)
 except ImportError:
-    # Fallback: disable tree-sitter chunking
-    print("Warning: tree_sitter_python not installed. Using simple line-based chunking.")
+    log("Warning: tree_sitter_python not installed. Using simple line-based chunking.")
     PY_LANGUAGE = None
     parser = None
 
@@ -26,12 +27,12 @@ class SemanticSearch:
     def __init__(
         self,
         embedding_model_name: str = "jinaai/jina-code-embeddings-0.5b",
-        reranker_model_name: Optional[str] = "jinaai/jina-reranker-v3",  # CHANGED: Disable by default for speed
+        reranker_model_name: Optional[str] = "jinaai/jina-reranker-v3",  
         collection_name: str = "code_index",
         persist_directory: str = "./.vector_index",
-        device: str = "cpu",  # CHANGED: Default to CPU
+        device: str = "cpu",  # Default to CPU
         max_chunk_size: int = 512,
-        num_threads: int = 8,  # NEW: CPU threading
+        num_threads: int = 8, 
     ):
         self.embedding_model_name = embedding_model_name
         self.reranker_model_name = reranker_model_name
@@ -41,7 +42,6 @@ class SemanticSearch:
         self.device = device
         self.num_threads = num_threads
 
-        # NEW: Enable multi-threading for CPU
         if device == "cpu":
             import torch
             torch.set_num_threads(num_threads)
@@ -49,14 +49,12 @@ class SemanticSearch:
         # Initialize models
         self.embedder = SentenceTransformer(embedding_model_name, device=device)
         
-        # NEW: Optimize for speed
         if device == "cpu":
             self.embedder.to("cpu")
         
         if reranker_model_name:
             self.reranker = CrossEncoder(reranker_model_name, device=device)
             if device == "cpu":
-                # Optimize reranker for CPU
                 import torch
                 self.reranker.model.to("cpu")
         else:
@@ -81,11 +79,22 @@ class SemanticSearch:
         batch_size: int = 32,
         exclude_patterns: Optional[List[str]] = None,
     ) -> dict:
+        """
+        Index all code files in a repository.
+        
+        Args:
+            repo_path: Path to repository root
+            file_extensions: List of file extensions to index (e.g., [".py"])
+            batch_size: Number of chunks to embed at once
+            exclude_patterns: Patterns to exclude (directories or files)
+        
+        Returns:
+            dict: Statistics about indexing (indexed_files, total_chunks, skipped_files)
+        """
         if file_extensions is None:
             file_extensions = [".py"]
         
         if exclude_patterns is None:
-            # FIXED: More specific patterns to avoid false positives
             exclude_patterns = [
                 "__pycache__", ".pytest_cache", 
                 "node_modules", ".venv", "venv", "env", ".git",
@@ -101,12 +110,11 @@ class SemanticSearch:
         for ext in file_extensions:
             files_to_index.extend(repo_path.rglob(f"*{ext}"))
 
-        print(f"[SemanticSearch] Found {len(files_to_index)} total files")
+        log(f"[SemanticSearch] Found {len(files_to_index)} total files")
 
-        # IMPROVED: More careful filtering
+        # Filter files based on exclude patterns
         def should_exclude(file_path: Path) -> bool:
             """Check if file should be excluded based on patterns."""
-            # Get path relative to repo root
             try:
                 relative_path = file_path.relative_to(repo_path)
             except ValueError:
@@ -123,17 +131,17 @@ class SemanticSearch:
                 if pattern_lower in path_parts:
                     return True
             
-            # ADDITIONAL: Exclude test directories (but not files containing "test" in parent paths)
+            # Exclude test directories
             test_dir_patterns = ["test", "tests", "testing"]
             for part in path_parts[:-1]:  # Check all directories, not the filename
                 if part.lower() in test_dir_patterns:
                     return True
             
-            # ADDITIONAL: Exclude test files (files starting with test_ or ending with _test.py)
+            # Exclude test files
             if file_name.startswith("test_") or file_name.endswith("_test.py"):
                 return True
             
-            # ADDITIONAL: Exclude docs and examples directories
+            # Exclude docs and examples directories
             if "docs" in path_parts or "examples" in path_parts:
                 return True
             
@@ -143,7 +151,121 @@ class SemanticSearch:
         files_to_index = [f for f in files_to_index if not should_exclude(f)]
         excluded_count = original_count - len(files_to_index)
 
-        print(f"[SemanticSearch] After filtering: {len(files_to_index)} files to index ({excluded_count} excluded)")
+        log(f"[SemanticSearch] After filtering: {len(files_to_index)} files to index ({excluded_count} excluded)")
+        
+        if len(files_to_index) == 0:
+            log(f"[SemanticSearch] WARNING: No files to index after filtering!")
+            return {
+                "indexed_files": 0,
+                "total_chunks": 0,
+                "skipped_files": 0,
+                "excluded_files": excluded_count
+            }
+        
+        # Index each file
+        indexed_files = 0
+        skipped_files = 0
+        total_chunks = 0
+        
+        # Prepare batches for efficient embedding
+        all_chunks = []
+        all_metadatas = []
+        all_ids = []
+        
+        for file_path in tqdm(files_to_index, desc="Processing files"):
+            try:
+                # Read file content
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                if not content.strip():
+                    skipped_files += 1
+                    continue
+                
+                # Chunk the content
+                chunks = self._chunk_text(content, self.max_chunk_size)
+                
+                if not chunks:
+                    skipped_files += 1
+                    continue
+                
+                # Get relative path from repo root
+                try:
+                    relative_path = str(file_path.relative_to(repo_path))
+                except ValueError:
+                    relative_path = str(file_path)
+                
+                # Prepare metadata for each chunk
+                for chunk_idx, chunk in enumerate(chunks):
+                    chunk_id = f"{relative_path}::{chunk_idx}"
+                    
+                    metadata = {
+                        "file_path": relative_path,
+                        "chunk_index": chunk_idx,
+                        "total_chunks": len(chunks),
+                        "file_extension": file_path.suffix,
+                    }
+                    
+                    all_chunks.append(chunk)
+                    all_metadatas.append(metadata)
+                    all_ids.append(chunk_id)
+                
+                indexed_files += 1
+                total_chunks += len(chunks)
+                
+            except Exception as e:
+                log(f"[SemanticSearch] Error processing {file_path}: {e}")
+                skipped_files += 1
+                continue
+        
+        # Embed and add to ChromaDB in batches
+        if all_chunks:
+            log(f"[SemanticSearch] Embedding {len(all_chunks)} chunks in batches of {batch_size}...")
+            
+            for i in tqdm(range(0, len(all_chunks), batch_size), desc="Embedding batches"):
+                batch_chunks = all_chunks[i:i+batch_size]
+                batch_metadatas = all_metadatas[i:i+batch_size]
+                batch_ids = all_ids[i:i+batch_size]
+                
+                try:
+                    # Generate embeddings for this batch
+                    embeddings = self.embedder.encode(
+                        batch_chunks,
+                        normalize_embeddings=True,
+                        show_progress_bar=False,
+                        convert_to_numpy=True,
+                    )
+                    
+                    # Add to ChromaDB
+                    self.collection.add(
+                        documents=batch_chunks,
+                        embeddings=embeddings.tolist(),
+                        metadatas=batch_metadatas,
+                        ids=batch_ids,
+                    )
+                    
+                except Exception as e:
+                    log(f"[SemanticSearch] Error embedding batch {i//batch_size}: {e}")
+                    continue
+            
+            log(f"[SemanticSearch] Successfully indexed {indexed_files} files into {total_chunks} chunks")
+        else:
+            log(f"[SemanticSearch] No chunks to embed!")
+        
+        # Verify the index was populated
+        final_stats = self.get_stats()
+        if final_stats["total_documents"] == 0:
+            log(f"[SemanticSearch] CRITICAL WARNING: Index is empty after indexing!")
+            log(f"[SemanticSearch]   Files processed: {indexed_files}")
+            log(f"[SemanticSearch]   Chunks created: {total_chunks}")
+            log(f"[SemanticSearch]   ChromaDB count: {final_stats['total_documents']}")
+        
+        return {
+            "indexed_files": indexed_files,
+            "total_chunks": total_chunks,
+            "skipped_files": skipped_files,
+            "excluded_files": excluded_count,
+        }
         
     def search(self, query: str, n_results: int = 10, filter_metadata: Optional[dict] = None, use_reranker: bool = True) -> list[dict]:
         """Search with optional reranking."""
@@ -158,22 +280,43 @@ class SemanticSearch:
         # Retrieve more candidates for reranking
         n_retrieve = n_results * 5 if (self.reranker) else n_results
         
-        results = self.collection.query(
-            query_embeddings=[query_emb],
-            n_results=n_retrieve,
-            where=filter_metadata,
-        )
+        try:
+            results = self.collection.query(
+                query_embeddings=[query_emb],
+                n_results=n_retrieve,
+                where=filter_metadata,
+            )
+        except Exception as e:
+            log(f"[SemanticSearch] ChromaDB query failed: {e}")
+            return []
 
+        # Null checking for ChromaDB results
         formatted_results = []
-        if results["documents"] and results["documents"][0]:
-            for i in range(len(results["documents"][0])):
-                formatted_results.append({
-                    "file_path": results["metadatas"][0][i]["file_path"],
-                    "chunk_index": results["metadatas"][0][i]["chunk_index"],
-                    "content": results["documents"][0][i],
-                    "similarity_score": 1 - results["distances"][0][i],
-                    "metadata": results["metadatas"][0][i]
-                })
+        if (results and 
+            results.get("documents") and 
+            results.get("metadatas") and 
+            len(results["documents"]) > 0 and 
+            len(results["metadatas"]) > 0 and
+            results["documents"][0] is not None and
+            results["metadatas"][0] is not None):
+            
+            try:
+                for i in range(len(results["documents"][0])):
+                    # Additional safety check for each metadata entry
+                    if i < len(results["metadatas"][0]) and results["metadatas"][0][i]:
+                        formatted_results.append({
+                            "file_path": results["metadatas"][0][i].get("file_path", "unknown"),
+                            "chunk_index": results["metadatas"][0][i].get("chunk_index", 0),
+                            "content": results["documents"][0][i],
+                            "similarity_score": 1 - results["distances"][0][i] if results.get("distances") and len(results["distances"]) > 0 else 0.0,
+                            "metadata": results["metadatas"][0][i]
+                        })
+            except (IndexError, KeyError, TypeError) as e:
+                log(f"[SemanticSearch] Error formatting results: {e}")
+                return []
+        else:
+            log(f"[SemanticSearch] No results or empty collection for query: {query}")
+            return []
 
         # Rerank if enabled and reranker exists
         if self.reranker and formatted_results:
@@ -181,10 +324,10 @@ class SemanticSearch:
             pairs = [(query, text) for text in texts]
             
             try:
-                # FIX: Use batch_size=1 to avoid padding token issues
+                # batch_size=1 to avoid padding token issues
                 rerank_scores = self.reranker.predict(
                     pairs, 
-                    batch_size=1,  # CHANGED: Force batch_size=1 for stability
+                    batch_size=1,  
                     show_progress_bar=False,
                     convert_to_numpy=True
                 )
@@ -194,14 +337,10 @@ class SemanticSearch:
 
                 formatted_results.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
             except Exception as e:
-                print(f"Warning: Reranking failed: {e}, using similarity scores only")
-                # Fall back to similarity scores if reranking fails
+                log(f"Warning: Reranking failed: {e}, using similarity scores only")
         
         return formatted_results[:n_results]
 
-    # ---------------------------
-    # Utilities
-    # ---------------------------
     def get_unique_files(self, search_results: list[dict]) -> list[str]:
         seen = set()
         unique_files = []
@@ -225,7 +364,7 @@ class SemanticSearch:
 
             chunks = []
 
-            # Helper: chunk text by lines when too large
+            # chunk text by lines when too large
             def chunk_lines(block_text, max_size):
                 lines = block_text.split("\n")
                 out_chunks = []
@@ -278,7 +417,7 @@ class SemanticSearch:
             
         except Exception as e:
             # Fallback if tree-sitter parsing fails
-            print(f"Warning: tree-sitter parsing failed, using simple chunking: {e}")
+            log(f"Warning: tree-sitter parsing failed, using simple chunking: {e}")
             return self._chunk_lines_simple(text, max_size)
     
     def _chunk_lines_simple(self, text: str, max_size: int) -> list[str]:
@@ -355,7 +494,7 @@ def semantic_search(
     # Check if needs indexing
     stats = index.get_stats()
     if stats["total_documents"] == 0 or rebuild_index:
-        print(f"Indexing {repo_path}...")
+        log(f"Indexing {repo_path}...")
         index.index_code_files(str(repo_path))
     
     # Search

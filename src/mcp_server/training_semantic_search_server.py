@@ -1,68 +1,51 @@
-"""
-Lightweight MCP server for training that delegates to EmbeddingService.
-
-This MCP server does NOT load embedding models locally.
-Instead, it calls a shared Ray actor that has models pre-loaded.
-
-Use this during training for massive efficiency gains.
-"""
-
-import json
 import os
+import sys
+import time
+import fcntl
+from pathlib import Path
+from typing import Optional, List, Any
 import hashlib
 import subprocess
-from pathlib import Path
-from typing import Any, Optional
-import ray
 
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent, EmbeddedResource
+    from mcp.types import Tool, TextContent
 except ImportError as e:
-    raise ImportError(
-        f"Please install MCP SDK: uv pip install mcp fastmcp\nError: {e}"
-    )
+    raise ImportError(f"Please install MCP SDK: uv pip install mcp fastmcp\nError: {e}")
 
 
-# Global state
+def log(msg: str):
+    """Log to stderr to avoid polluting MCP's stdout JSON-RPC channel."""
+    print(msg, file=sys.stderr, flush=True)
+
+
 server = Server("semantic-code-search-training")
-embedding_service = None
 
 
 def get_workspace_path() -> str:
     """Get workspace path from environment variable."""
     workspace = os.getenv("WORKSPACE_PATH")
     if not workspace:
-        raise ValueError(
-            "WORKSPACE_PATH environment variable not set. "
-            "Please configure the MCP server with the workspace path."
-        )
+        raise ValueError("WORKSPACE_PATH environment variable not set.")
     return workspace
 
 
 def get_repo_info(repo_path: Path) -> tuple[str, str]:
     """Extract repo name and commit hash from git repository."""
     try:
-        # Get current commit
         result = subprocess.run(
             ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
+            capture_output=True, text=True, check=True,
         )
         commit = result.stdout.strip()
 
-        # Get remote URL to extract repo name
         result = subprocess.run(
             ["git", "-C", str(repo_path), "config", "--get", "remote.origin.url"],
-            capture_output=True,
-            text=True,
-            check=True,
+            capture_output=True, text=True, check=True,
         )
         url = result.stdout.strip()
 
-        # Parse repo name from URL
         if "github.com" in url:
             parts = url.rstrip(".git").split("/")
             repo_name = "/".join(parts[-2:])
@@ -71,7 +54,6 @@ def get_repo_info(repo_path: Path) -> tuple[str, str]:
 
         return repo_name, commit
     except Exception:
-        # Fallback: use directory name
         return repo_path.name, "unknown"
 
 
@@ -80,31 +62,99 @@ def get_repo_commit_hash(repo_name: str, commit: str) -> str:
     key = f"{repo_name}:{commit}"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
-def get_embedding_service_ref():
-    """Get reference to shared embedding service."""
-    global embedding_service
 
-    if embedding_service is None:
-        # Initialize Ray if not already initialized
-        if not ray.is_initialized():
-            ray_address = os.getenv("RAY_ADDRESS", "auto")
-            try:
-                ray.init(address=ray_address, ignore_reinit_error=True)
-            except Exception as e:
-                raise RuntimeError(
-                    f"Failed to connect to Ray cluster at {ray_address}: {e}"
-                )
+class FileLock:
+    """Simple file-based lock for coordinating ChromaDB access."""
+    
+    def __init__(self, lock_file: Path):
+        self.lock_file = lock_file
+        self.lock_file.parent.mkdir(parents=True, exist_ok=True)
+        self.fp = None
+    
+    def __enter__(self):
+        self.fp = open(self.lock_file, 'w')
+        log(f"[FileLock] Waiting for lock: {self.lock_file}")
+        fcntl.flock(self.fp.fileno(), fcntl.LOCK_EX)
+        log(f"[FileLock] Acquired lock: {self.lock_file}")
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.fp:
+            fcntl.flock(self.fp.fileno(), fcntl.LOCK_UN)
+            self.fp.close()
+            log(f"[FileLock] Released lock: {self.lock_file}")
 
+
+def ensure_index_exists(repo_path: Path, cache_dir: Path, repo_commit_hash: str) -> bool:
+    """
+    Ensure index is created (with file locking to prevent concurrent creation).
+    
+    Returns:
+        bool: True if index exists/was created successfully
+    """
+    lock_file = cache_dir / ".lock"
+    marker_file = cache_dir / ".indexed"
+    
+    # Quick check: if marker exists, we're done
+    if marker_file.exists():
+        log(f"[Index] Already indexed (marker exists): {cache_dir}")
+        return True
+    
+    # Need to index: acquire lock to prevent concurrent indexing
+    with FileLock(lock_file):
+        # Double-check after acquiring lock (another worker might have finished)
+        if marker_file.exists():
+            log(f"[Index] Already indexed (marker exists after lock): {cache_dir}")
+            return True
+        
+        log(f"[Index] Creating index for {repo_commit_hash}...")
+        
         try:
-            # Connect to existing service
-            embedding_service = ray.get_actor("embedding_service")
-        except ValueError:
-            raise ValueError(
-                "Embedding service not found. "
-                "Initialize it at training start with get_embedding_service()"
+            from src.tools.semantic_search import SemanticSearch
+            
+            # Create index with exclusive access
+            index = SemanticSearch(
+                collection_name=f"code_{repo_commit_hash}",
+                persist_directory=str(cache_dir),
+                device="cpu",
+                embedding_model_name="all-MiniLM-L6-v2",
+                reranker_model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+                num_threads=4,
             )
-
-    return embedding_service
+            
+            exclude_patterns = [
+                "__pycache__", ".pytest_cache",
+                "node_modules", ".venv", "venv", "env", ".git",
+                ".tox", ".eggs", "dist", "build",
+                "*_test.py", "test_*.py", "*Test.py", "*Tests.py"
+            ]
+            
+            stats = index.index_code_files(
+                str(repo_path),
+                file_extensions=[".py"],
+                batch_size=32,
+                exclude_patterns=exclude_patterns
+            )
+            
+            log(f"[Index] Indexed {stats['total_chunks']} chunks from {stats['indexed_files']} files")
+            
+            # Verify indexing succeeded
+            final_stats = index.get_stats()
+            if final_stats["total_documents"] == 0:
+                log(f"[Index] ERROR: Index is empty after indexing!")
+                return False
+            
+            # Create marker file to indicate indexing is complete
+            marker_file.write_text(f"{stats['total_chunks']}")
+            log(f"[Index] Created marker file: {marker_file}")
+            
+            return True
+            
+        except Exception as e:
+            import traceback
+            log(f"[Index] ERROR during indexing: {e}")
+            log(traceback.format_exc())
+            return False
 
 
 @server.list_tools()
@@ -115,8 +165,7 @@ async def list_tools() -> list[Tool]:
             name="semantic_search",
             description=(
                 "Search the current repository using semantic similarity. "
-                "Automatically uses the workspace repository. "
-                "Fast CPU-based indexing with caching."
+                "Automatically uses the workspace repository."
             ),
             inputSchema={
                 "type": "object",
@@ -139,7 +188,6 @@ async def list_tools() -> list[Tool]:
     ]
 
 
-
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
@@ -147,33 +195,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         if name == "semantic_search":
             return await handle_semantic_search(arguments)
         else:
-            return [
-                TextContent(
-                    type="text",
-                    text=f"Error: Unknown tool '{name}'",
-                )
-            ]
+            return [TextContent(type="text", text=f"Error: Unknown tool '{name}'")]
     except Exception as e:
-        return [
-            TextContent(
-                type="text",
-                text=f"Error executing {name}: {str(e)}",
-            )
-        ]
+        import traceback
+        error_msg = f"Error executing {name}: {str(e)}\n{traceback.format_exc()}"
+        log(error_msg)
+        return [TextContent(type="text", text=f"Error executing {name}: {str(e)}")]
 
 
 async def handle_semantic_search(arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle semantic search with proper isolation."""
+    """Handle semantic search with proper concurrency control."""
     query = arguments["query"]
     repo_path = Path(get_workspace_path()).resolve()
     n_results = arguments.get("n_results", 10)
-    print(f"[Semantic Search] Resolved repo path: {repo_path}")
-    print(f"[Semantic Search] Repo exists: {repo_path.exists()}")
     
-    if repo_path.exists():
-        # List some files to verify
-        py_files = list(repo_path.rglob("*.py"))[:5]
-        print(f"[Semantic Search] Sample Python files: {[str(f.relative_to(repo_path)) for f in py_files]}")
+    log(f"[Semantic Search] Query: '{query}'")
+    log(f"[Semantic Search] Repo: {repo_path}")
     
     if not repo_path.exists():
         return [TextContent(type="text", text=f"Error: Repository path does not exist: {repo_path}")]
@@ -181,65 +218,42 @@ async def handle_semantic_search(arguments: dict[str, Any]) -> list[TextContent]
     # Get repo info
     repo_name, commit = get_repo_info(repo_path)
     repo_commit_hash = get_repo_commit_hash(repo_name, commit)
-
-    # FIX: Use process-specific directory to avoid collisions
-    import os
-    worker_id = os.getpid()
     
     cache_dir = Path(f"/data/user_data/sanidhyv/tmp/embedding_cache/{repo_commit_hash}")
     cache_dir.mkdir(parents=True, exist_ok=True)
     
-    from src.tools.semantic_search import SemanticSearch
+    log(f"[Semantic Search] Repo: {repo_name}@{commit[:8]}, Hash: {repo_commit_hash}")
     
+    # Ensure index exists (with locking to prevent concurrent creation)
+    if not ensure_index_exists(repo_path, cache_dir, repo_commit_hash):
+        return [TextContent(type="text", text=f"Failed to create index for {repo_name}")]
+    
+    # Now safely search (read-only, no locking needed)
     try:
-        # Create or load index
+        from src.tools.semantic_search import SemanticSearch
+        
+        # Open in read-only mode
         index = SemanticSearch(
-            collection_name=f"code_{repo_commit_hash}",  # Unique per repo
+            collection_name=f"code_{repo_commit_hash}",
             persist_directory=str(cache_dir),
             device="cpu",
             embedding_model_name="all-MiniLM-L6-v2",
             reranker_model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
-            num_threads=4,  # Reduced from 8 to avoid CPU contention
+            num_threads=4,
         )
         
-        # Check if already indexed
         stats = index.get_stats()
-        if stats["total_documents"] == 0:
-            # Index with test exclusion
-            print(f"[Semantic Search Worker {worker_id}] Indexing {repo_name}...")
-            exclude_patterns = [
-                "__pycache__", ".pytest_cache",
-                "node_modules", ".venv", "venv", "env", ".git",
-                ".tox", ".eggs", "dist", "build",
-                # Removed overly broad "test", "tests", etc.
-                "*_test.py", "test_*.py", "*Test.py", "*Tests.py"
-            ]
-            
-            index_stats = index.index_code_files(
-                str(repo_path), 
-                file_extensions=[".py"], 
-                batch_size=32,  # Reduced from 64
-                exclude_patterns=exclude_patterns
-            )
-            print(f"[Semantic Search Worker {worker_id}] Indexed {index_stats['total_chunks']} chunks from {index_stats['indexed_files']} files")
-        else:
-            print(f"[Semantic Search Worker {worker_id}] Using cached index with {stats['total_documents']} chunks")
+        log(f"[Semantic Search] Searching {stats['total_documents']} documents")
         
-        # Double-check we have data
-        stats = index.get_stats()
         if stats["total_documents"] == 0:
-            return [TextContent(
-                type="text", 
-                text=f"No Python files found to index in {repo_path} (after excluding tests)"
-            )]
+            return [TextContent(type="text", text=f"Index is empty (no documents found)")]
         
-        # Perform search with reranking
         results = index.search(query, n_results=n_results, use_reranker=True)
         
-        # Format results
         if not results:
             return [TextContent(type="text", text=f"No results found for query: {query}")]
         
+        # Format results
         output_lines = [f"Found {len(results)} relevant code chunks for: '{query}'\n"]
         
         for i, result in enumerate(results, 1):
@@ -267,12 +281,13 @@ async def handle_semantic_search(arguments: dict[str, Any]) -> list[TextContent]
         
         result_text = "\n".join(output_lines)
         return [TextContent(type="text", text=result_text)]
-    
+        
     except Exception as e:
         import traceback
         error_msg = f"Error in semantic search: {str(e)}\n{traceback.format_exc()}"
-        print(error_msg)
-        return [TextContent(type="text", text=f"Error executing semantic_search: {str(e)}")]
+        log(error_msg)
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
+
 
 async def main():
     """Run the MCP server."""
@@ -286,5 +301,4 @@ async def main():
 
 if __name__ == "__main__":
     import asyncio
-
     asyncio.run(main())

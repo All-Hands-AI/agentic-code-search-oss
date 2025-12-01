@@ -76,7 +76,6 @@ def init_and_run(
     repo_name = instance["repo"]
     commit_id = instance["base_commit"]
     
-    # FIXED: Use unique workspace per worker
     worker_id = os.getpid()
     workspace = Path(f"/data/user_data/sanidhyv/tmp/testbed_{worker_id}/")
     workspace.mkdir(parents=True, exist_ok=True)
@@ -267,7 +266,7 @@ def init_and_run(
         )
     
     finally:
-        # CRITICAL: Cleanup workspace and index
+        # Cleanup workspace and index
         print(f"[Worker {worker_id}] Cleaning up episode {instance_id}")
         
         # 1. Clean up workspace (repo clone)
