@@ -10,6 +10,8 @@ import requests
 from pathlib import Path
 import os
 import ast
+import shutil
+from pydantic import SecretStr
 
 import signal
 from contextlib import contextmanager
@@ -67,103 +69,222 @@ def init_and_run(
     global_step: int,
     training_phase: Union[TrainingPhase, Any],
 ):
-
+    import os
+    import shutil
+    
     instance_id = instance["instance_id"]
     repo_name = instance["repo"]
     commit_id = instance["base_commit"]
-    workspace = Path("/tmp/testbed/")
-    # workspace = Path("testbed/")
-    status, working_dir = clone_instance(repo_name, commit_id, instance_id, workspace)
-    print("working_dir:", working_dir)
-
-    if training_phase == "eval":
-        temperature = 0.6
-    else:
-        temperature = 1.0
-
-    agent = None
-    final_message = ""
-    reward = 0
-    reward_dict = {}
-    error = None
-    messages = []
-
-    agent = Agent(
-        llm=LLM(
-            service_id="agent",
-            model=litellm_model_name,
-            base_url=f"http://localhost:8080/v1/",
-            api_key=os.getenv("API_KEY"),
-            temperature=temperature,
-            litellm_extra_body={
-                "return_token_ids": True,
-                "include_stop_str_in_output": True,
-            }
-        ),
-        # tools=get_planning_tools(),
-        tools=get_default_tools(enable_browser=False),
-        # system_prompt_filename=os.path.join(os.path.dirname(__file__), "..", "prompts", "templates", "system_message_search.j2"),
-        security_analyzer=None,
-    )
-
-    conversation = Conversation(
-        agent=agent,
-        max_iteration_per_run=8,
-        visualizer=None,
-        workspace=str(working_dir),
-    )
-    prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompts", "templates", "file_localization.j2")
-    input_message = get_instruction(instance, prompt_path, str(working_dir))
-    conversation.send_message(input_message)
-    print("Starting conversation...")
+    
+    worker_id = os.getpid()
+    workspace = Path(f"/data/user_data/sanidhyv/tmp/testbed_{worker_id}/")
+    workspace.mkdir(parents=True, exist_ok=True)
+    
+    # Track what we created for cleanup
+    created_workspace = False
+    created_index = False
+    index_path = None
+    
     try:
+        status, working_dir = clone_instance(repo_name, commit_id, instance_id, workspace)
+        created_workspace = True
+        print(f"[Worker {worker_id}] working_dir: {working_dir}")
 
-        class TimeoutError(Exception):
-            pass
+        if training_phase == "eval":
+            temperature = 0.6
+        else:
+            temperature = 1.0
 
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Operation timed out")
+        agent = None
+        final_message = ""
+        reward = 0
+        reward_dict = {}
+        error = None
+        messages = []
 
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(60*5)  # 5 minute timeout
+        # Configure semantic search if enabled
+        use_semantic_search = True
+        mcp_config = None
+        agent_context = None
 
-        logger.info("Conversation Starting")
-        conversation.run()
-    except Exception as e:
-        logger.error(f"Error is sending conversation: {e}", exc_info=True)
-        error = e + "\n" + traceback.format_exc()
-    finally:
-        conversation.close()
-        logger.info("Conversation Finished")
+        if use_semantic_search:
+            from openhands.sdk.context.skills import Skill
+            from openhands.sdk import AgentContext
 
-        messages = list(map(lambda event: event.model_dump(), conversation.state.events))
-        final_message = get_agent_final_response(conversation.state.events)
+            # Get base path
+            base_path = Path(generator_cfg.get("base_path", "/home/sanidhyv/agentic-code-search-oss"))
+            skill_path = base_path / ".openhands" / "skills" / "semantic-search.md"
+            
+            if not skill_path.exists():
+                print(f"[Episode {instance_id}] Warning: Skill file not found, semantic search disabled")
+                use_semantic_search = False
+            else:
+                skill = Skill.load(str(skill_path))
+                wrapper_path = base_path / "run_mcp_server_training.sh"
+                
+                if not wrapper_path.exists():
+                    print(f"[Episode {instance_id}] Warning: MCP wrapper not found")
+                    use_semantic_search = False
+                else:
+                    import stat
+                    wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IEXEC)
+                    
+                    # Track index location for cleanup
+                    from src.mcp_server.training_semantic_search_server import get_repo_commit_hash
+                    repo_commit_hash = get_repo_commit_hash(repo_name, commit_id)
+                    index_path = Path(f"/data/user_data/sanidhyv/tmp/embedding_cache/{repo_commit_hash}")
+                    
+                    mcp_config = {
+                        "mcpServers": {
+                            "semantic-code-search": {
+                                "command": "bash",
+                                "args": [str(wrapper_path)],
+                                "env": {
+                                    "WORKSPACE_PATH": str(working_dir),  # This should be the cloned repo, NOT "."
+                                    "RAY_ADDRESS": os.environ.get("RAY_ADDRESS", "auto"),
+                                    "PYTHONPATH": str(base_path),
+                                }
+                            }
+                        }
+                    }
+                    
+                    agent_context = AgentContext(skills=[skill])
+                    print(f"[Episode {instance_id}] Semantic search enabled")
+                    
+                    # Mark that we'll create an index
+                    if not index_path.exists():
+                        created_index = True
 
-    try:
-        reward_file = file_localization_f1_reward(final_message, instance)
-        # reward_file = file_localization_f1_reward(final_message, instance, working_dir=working_dir)
+        # Agent creation
+        agent_kwargs = {
+            "llm": LLM(
+                service_id="agent",
+                model=litellm_model_name,
+                base_url=f"http://localhost:8080/v1/",
+                api_key=SecretStr("dummy"),
+                temperature=temperature,
+                litellm_extra_body={
+                    "return_token_ids": True,
+                    "include_stop_str_in_output": True,
+                }
+            ),
+            "tools": get_default_tools(enable_browser=False),
+            "security_analyzer": None,
+        }
+        
+        if use_semantic_search and mcp_config is not None and agent_context is not None:
+            agent_kwargs["agent_context"] = agent_context
+            agent_kwargs["mcp_config"] = mcp_config
+        
+        agent = Agent(**agent_kwargs)
 
-        def multiturn_reward(messages):
-            token_messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
-            if len(token_messages) > 1:
-                return 1.0
-            return 0.0
-
-        reward_multiturn = multiturn_reward(messages)
-
-        reward = reward_file + reward_multiturn
-        reward_dict = {"file_localization_f1": reward_file, "multiturn_reward": reward_multiturn}
-    except Exception as e:
-        reward = 0.0
-        reward_dict = {"file_localization_f1": 0.0, "multiturn_reward": 0.0}
-        # error = str(e) + "\n" + traceback.format_exc()
-    return (
-        (messages, final_message),
-        (reward, reward_dict),
-        error,
+        conversation = Conversation(
+            agent=agent,
+            max_iteration_per_run=8,
+            visualizer=None,
+            workspace=str(working_dir),
         )
+        
+        prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompts", "templates", "file_localization.j2")
+        input_message = get_instruction(instance, prompt_path, str(working_dir))
+        
+        # Truncate input if too long
+        from transformers import AutoTokenizer
+        MAX_INPUT_TOKENS = 12000
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                litellm_model_name,
+                trust_remote_code=True,
+                cache_dir="/data/user_data/sanidhyv/.cache/huggingface"
+            )
+            input_tokens = tokenizer.encode(input_message)
+            
+            if len(input_tokens) > MAX_INPUT_TOKENS:
+                print(f"[Episode {instance_id}] Input too long ({len(input_tokens)} tokens), truncating")
+                input_tokens = input_tokens[:500] + input_tokens[-(MAX_INPUT_TOKENS-500):]
+                input_message = tokenizer.decode(input_tokens, skip_special_tokens=True)
+        except Exception as e:
+            print(f"[Episode {instance_id}] Could not check input length: {e}")
+        
+        conversation.send_message(input_message)
+        print("Starting conversation...")
+        
+        try:
+            class TimeoutError(Exception):
+                pass
 
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Operation timed out")
 
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(60*10)  # 10 minute timeout
+
+            logger.info("Conversation Starting")
+            conversation.run()
+        except TimeoutError as e:
+            logger.error(f"Conversation timed out: {e}")
+            error = f"Timeout: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error in conversation: {e}", exc_info=True)
+            error = str(e) + "\n" + traceback.format_exc()
+        finally:
+            signal.alarm(0)
+            conversation.close()
+            logger.info("Conversation Finished")
+
+            messages = list(map(lambda event: event.model_dump(), conversation.state.events))
+            
+            # Truncate messages
+            MAX_MESSAGES = 100
+            if len(messages) > MAX_MESSAGES:
+                original_len = len(messages)
+                messages = messages[-MAX_MESSAGES:]
+                print(f"[Episode {instance_id}] Truncated messages from {original_len} to {MAX_MESSAGES}")
+            
+            final_message = get_agent_final_response(conversation.state.events)
+
+        try:
+            reward_file = file_localization_f1_reward(final_message, instance)
+
+            def multiturn_reward(messages):
+                token_messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
+                if len(token_messages) > 1:
+                    return 1.0
+                return 0.0
+
+            reward_multiturn = multiturn_reward(messages)
+            reward = reward_file + reward_multiturn
+            reward_dict = {"file_localization_f1": reward_file, "multiturn_reward": reward_multiturn}
+        except Exception as e:
+            reward = 0.0
+            reward_dict = {"file_localization_f1": 0.0, "multiturn_reward": 0.0}
+        
+        return (
+            (messages, final_message),
+            (reward, reward_dict),
+            error,
+        )
+    
+    finally:
+        # Cleanup workspace and index
+        print(f"[Worker {worker_id}] Cleaning up episode {instance_id}")
+        
+        # 1. Clean up workspace (repo clone)
+        if created_workspace:
+            try:
+                shutil.rmtree(workspace, ignore_errors=True)
+                print(f"[Worker {worker_id}] Removed workspace: {workspace}")
+            except Exception as e:
+                print(f"[Worker {worker_id}] Warning: Could not remove workspace: {e}")
+        
+        # 2. Clean up semantic search index (if we created it)
+        if created_index and index_path and index_path.exists():
+            try:
+                shutil.rmtree(index_path, ignore_errors=True)
+                print(f"[Worker {worker_id}] Removed index: {index_path}")
+            except Exception as e:
+                print(f"[Worker {worker_id}] Warning: Could not remove index: {e}")
+                
 class CodeSearchGenerator(SkyRLGymGenerator):
     def __init__(
         self,
@@ -206,28 +327,18 @@ class CodeSearchGenerator(SkyRLGymGenerator):
         trajectory_id: TrajectoryID,
         batch_metadata: BatchMetadata,
     ) -> Tuple[List[int], float, str, List[int], List[int], Optional[List[int]]]:
-        # sweagent_config = yaml.safe_load(get_config_path(self.generator_cfg.miniswe_config_path).read_text())
-        # NOTE (sumanthrh): Input `prompt` is not used here because mini-swe-agent uses a similar entry from the `instance` obj
-        # instance = env_extras["instance"]
         try:
             (messages, final_message), (reward, reward_dict), error = await init_and_run.remote(
                 env_extras,
                 self.litellm_model_name,
-                # sweagent_config,
                 self.base_url,
                 self.generator_cfg,
-                # env_extras["data_source"],
                 "swe-gym",
                 sampling_params,
                 trajectory_id,
                 batch_metadata.global_step,
                 batch_metadata.training_phase,
             )
-
-            # print("=" * 100)
-            # print("Conversation finished. Got the following LLM messages:")
-            # for i, message in enumerate(messages):
-            #     print(f"Message {i}: {str(message)[:200]}")
 
             token_messages = [msg for msg in messages if msg["kind"] == "TokenEvent"]
 
@@ -238,6 +349,7 @@ class CodeSearchGenerator(SkyRLGymGenerator):
             loss_mask = []
             initial_input_len = 0
             past_trajectory_len = 0
+            
             for idx, message in enumerate(token_messages):
                 current_prompt_ids = message["prompt_token_ids"]
                 current_response_ids = message["response_token_ids"]
@@ -257,17 +369,8 @@ class CodeSearchGenerator(SkyRLGymGenerator):
                 current_prompt_len = len(current_prompt_ids)
                 current_response_len = len(current_response_ids)
 
-                # print("idx:", idx)
-                # print("initial_input_ids_len:", initial_input_len)
-                # print("past_trajectory_len:", past_trajectory_len)
-                # print("past_response_len:", past_response_len)
-                # print("current_prompt_len:", current_prompt_len)
-                # print("current_response_len:", current_response_len)
-
-                # past_prompt_len = len(prompt_ids_list[idx-1]) if idx > 0 else 0
                 past_response_observation_ids = current_prompt_ids[past_trajectory_len:]
                 past_response_observation_len = len(past_response_observation_ids)
-                # print("past_response_observation_len:", past_response_observation_len)
                 loss_mask.extend([0] * past_response_observation_len)
                 loss_mask.extend([1] * current_response_len)
             
@@ -275,8 +378,7 @@ class CodeSearchGenerator(SkyRLGymGenerator):
             assert len(response_ids) == len(loss_mask), f"Response ids length {len(response_ids)} != loss mask length {len(loss_mask)}"
 
         except Exception as e:
-            logger.error(f"Error is sending conversation: {e}", exc_info=True)
-            # TODO properly handle this
+            logger.error(f"Error in code_search_loop: {e}", exc_info=True)
             error = str(e) + "\n" + traceback.format_exc()
             reward = 0
             response_ids = [151643]
@@ -309,7 +411,7 @@ class CodeSearchGenerator(SkyRLGymGenerator):
 
             print(f"Saving trajectory to {filename_path}")
             with open(filename_path, "w") as f:
-                json.dump(result_dict, f, indent=2) #, sort_keys=True, ensure_ascii=False)
+                json.dump(result_dict, f, indent=2)
 
         return (response_ids, reward, stop_reason, loss_mask, initial_input_ids, None)
 
@@ -350,7 +452,6 @@ class CodeSearchGenerator(SkyRLGymGenerator):
                 tasks.append(rollout)
             else:
                 tasks.extend(rollout)
-                
 
         all_outputs = await asyncio.gather(*tasks)
 
