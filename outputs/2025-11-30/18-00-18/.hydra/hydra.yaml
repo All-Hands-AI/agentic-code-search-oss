@@ -183,13 +183,13 @@ hydra:
     - path: hydra.conf
       schema: pkg
       provider: hydra
-    - path: /data/user_data/sanidhyv/.cache/uv/builds-v0/.tmpnV9ePn/lib/python3.12/site-packages/skyrl_train/config
+    - path: /data/user_data/sanidhyv/.cache/uv/builds-v0/.tmp5hTuMQ/lib/python3.12/site-packages/skyrl_train/config
       schema: file
       provider: main
     - path: ''
       schema: structured
       provider: schema
-    output_dir: /home/sanidhyv/agentic-code-search-oss/outputs/2025-11-30/16-52-00
+    output_dir: /home/sanidhyv/agentic-code-search-oss/outputs/2025-11-30/18-00-18
     choices:
       skyrl_gym_config: default
       megatron_config@trainer.ref.megatron_config: ref

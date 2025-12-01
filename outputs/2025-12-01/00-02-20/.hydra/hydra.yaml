@@ -160,11 +160,11 @@ hydra:
     - trainer.resume_mode=null
     - trainer.ckpt_path=/data/user_data/sanidhyv/grep/train
     - +generator.semantic_search=true
-    - +generator.engine_init_kwargs={enable_auto_tool_choice:true,tool_call_parser:hermes}
+    - +generator.engine_init_kwargs={enable_auto_tool_choice:true,tool_call_parser:hermes,max_model_len:16384}
   job:
     name: train
     chdir: null
-    override_dirname: +generator.engine_init_kwargs={enable_auto_tool_choice:true,tool_call_parser:hermes},+generator.semantic_search=true,+generator.traj_dir=/data/user_data/sanidhyv/grep/train/trajectories/,data.train_data=[data/SWE-Gym__SWE-Gym_train/train.parquet],data.val_data=[data/SWE-Gym__SWE-Gym_train/validation.parquet],generator.async_engine=true,generator.backend=vllm,generator.batched=true,generator.enable_http_endpoint=True,generator.gpu_memory_utilization=0.4,generator.http_endpoint_host=0.0.0.0,generator.http_endpoint_port=8080,generator.inference_engine_tensor_parallel_size=1,generator.max_input_length=14000,generator.max_num_batched_tokens=36000,generator.max_turns=20,generator.n_samples_per_prompt=4,generator.num_inference_engines=8,generator.run_engines_locally=True,generator.sampling_params.max_generate_length=2048,generator.weight_sync_backend=nccl,trainer.algorithm.advantage_estimator=grpo,trainer.algorithm.use_kl_loss=False,trainer.ckpt_interval=100,trainer.ckpt_path=/data/user_data/sanidhyv/grep/train,trainer.dump_data_batch=true,trainer.epochs=20,trainer.eval_batch_size=100,trainer.eval_before_train=false,trainer.eval_interval=100,trainer.logger=wandb,trainer.max_prompt_length=4096,trainer.micro_forward_batch_size_per_gpu=2,trainer.micro_train_batch_size_per_gpu=2,trainer.placement.colocate_all=true,trainer.placement.policy_num_gpus_per_node=8,trainer.placement.policy_num_nodes=1,trainer.placement.ref_num_gpus_per_node=8,trainer.placement.ref_num_nodes=1,trainer.policy.model.path=Qwen/Qwen3-4B,trainer.policy.optimizer_config.lr=1.0e-6,trainer.policy.sequence_parallel_size=8,trainer.policy_mini_batch_size=2,trainer.project_name=code_search,trainer.resume_mode=null,trainer.run_name=code_search_Qwen-Qwen3-4B,trainer.strategy=fsdp2,trainer.train_batch_size=2,trainer.update_epochs_per_batch=1
+    override_dirname: +generator.engine_init_kwargs={enable_auto_tool_choice:true,tool_call_parser:hermes,max_model_len:16384},+generator.semantic_search=true,+generator.traj_dir=/data/user_data/sanidhyv/grep/train/trajectories/,data.train_data=[data/SWE-Gym__SWE-Gym_train/train.parquet],data.val_data=[data/SWE-Gym__SWE-Gym_train/validation.parquet],generator.async_engine=true,generator.backend=vllm,generator.batched=true,generator.enable_http_endpoint=True,generator.gpu_memory_utilization=0.4,generator.http_endpoint_host=0.0.0.0,generator.http_endpoint_port=8080,generator.inference_engine_tensor_parallel_size=1,generator.max_input_length=14000,generator.max_num_batched_tokens=36000,generator.max_turns=20,generator.n_samples_per_prompt=4,generator.num_inference_engines=8,generator.run_engines_locally=True,generator.sampling_params.max_generate_length=2048,generator.weight_sync_backend=nccl,trainer.algorithm.advantage_estimator=grpo,trainer.algorithm.use_kl_loss=False,trainer.ckpt_interval=100,trainer.ckpt_path=/data/user_data/sanidhyv/grep/train,trainer.dump_data_batch=true,trainer.epochs=20,trainer.eval_batch_size=100,trainer.eval_before_train=false,trainer.eval_interval=100,trainer.logger=wandb,trainer.max_prompt_length=4096,trainer.micro_forward_batch_size_per_gpu=2,trainer.micro_train_batch_size_per_gpu=2,trainer.placement.colocate_all=true,trainer.placement.policy_num_gpus_per_node=8,trainer.placement.policy_num_nodes=1,trainer.placement.ref_num_gpus_per_node=8,trainer.placement.ref_num_nodes=1,trainer.policy.model.path=Qwen/Qwen3-4B,trainer.policy.optimizer_config.lr=1.0e-6,trainer.policy.sequence_parallel_size=8,trainer.policy_mini_batch_size=2,trainer.project_name=code_search,trainer.resume_mode=null,trainer.run_name=code_search_Qwen-Qwen3-4B,trainer.strategy=fsdp2,trainer.train_batch_size=2,trainer.update_epochs_per_batch=1
     id: ???
     num: ???
     config_name: ppo_base_config
@@ -183,13 +183,13 @@ hydra:
     - path: hydra.conf
       schema: pkg
       provider: hydra
-    - path: /data/user_data/sanidhyv/.cache/uv/builds-v0/.tmp8SebAJ/lib/python3.12/site-packages/skyrl_train/config
+    - path: /data/user_data/sanidhyv/.cache/uv/builds-v0/.tmpv7XAWD/lib/python3.12/site-packages/skyrl_train/config
       schema: file
       provider: main
     - path: ''
       schema: structured
       provider: schema
-    output_dir: /home/sanidhyv/agentic-code-search-oss/outputs/2025-11-30/15-29-35
+    output_dir: /home/sanidhyv/agentic-code-search-oss/outputs/2025-12-01/00-02-20
     choices:
       skyrl_gym_config: default
       megatron_config@trainer.ref.megatron_config: ref

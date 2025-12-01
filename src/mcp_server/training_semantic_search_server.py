@@ -75,6 +75,11 @@ def get_repo_info(repo_path: Path) -> tuple[str, str]:
         return repo_path.name, "unknown"
 
 
+def get_repo_commit_hash(repo_name: str, commit: str) -> str:
+    """Get unique hash for (repo, commit) pair."""
+    key = f"{repo_name}:{commit}"
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
 def get_embedding_service_ref():
     """Get reference to shared embedding service."""
     global embedding_service
@@ -203,9 +208,11 @@ async def handle_semantic_search(arguments: dict[str, Any]) -> list[TextContent]
             # Index with test exclusion
             print(f"[Semantic Search Worker {worker_id}] Indexing {repo_name}...")
             exclude_patterns = [
-                "test", "tests", "__pycache__", ".pytest_cache",
+                "__pycache__", ".pytest_cache",
                 "node_modules", ".venv", "venv", "env", ".git",
-                "test_", "tests_", "testing", ".tox", "docs", "examples",
+                ".tox", ".eggs", "dist", "build",
+                # Removed overly broad "test", "tests", etc.
+                "*_test.py", "test_*.py", "*Test.py", "*Tests.py"
             ]
             
             index_stats = index.index_code_files(

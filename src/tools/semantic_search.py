@@ -78,17 +78,18 @@ class SemanticSearch:
         self,
         repo_path: str,
         file_extensions: Optional[List[str]] = None,
-        batch_size: int = 32,  # Reduced default
+        batch_size: int = 32,
         exclude_patterns: Optional[List[str]] = None,
     ) -> dict:
         if file_extensions is None:
             file_extensions = [".py"]
         
         if exclude_patterns is None:
+            # FIXED: More specific patterns to avoid false positives
             exclude_patterns = [
-                "test", "tests", "__pycache__", ".pytest_cache", 
+                "__pycache__", ".pytest_cache", 
                 "node_modules", ".venv", "venv", "env", ".git",
-                "test_", "tests_", "testing", ".tox", "docs", "examples",
+                ".tox", ".eggs", "dist", "build",
             ]
 
         repo_path = Path(repo_path)
@@ -102,20 +103,40 @@ class SemanticSearch:
 
         print(f"[SemanticSearch] Found {len(files_to_index)} total files")
 
-        # Filter out excluded files
+        # IMPROVED: More careful filtering
         def should_exclude(file_path: Path) -> bool:
             """Check if file should be excluded based on patterns."""
-            path_parts = file_path.parts
-            path_str = str(file_path).lower()
+            # Get path relative to repo root
+            try:
+                relative_path = file_path.relative_to(repo_path)
+            except ValueError:
+                return True
+            
+            path_parts = relative_path.parts
+            path_str = str(relative_path).lower()
+            file_name = file_path.name.lower()
             
             for pattern in exclude_patterns:
                 pattern_lower = pattern.lower()
-                # Check directory names
-                if any(pattern_lower in part.lower() for part in path_parts):
+                
+                # Check if pattern matches any directory component exactly
+                if pattern_lower in path_parts:
                     return True
-                # Check file names
-                if pattern_lower in file_path.name.lower():
+            
+            # ADDITIONAL: Exclude test directories (but not files containing "test" in parent paths)
+            test_dir_patterns = ["test", "tests", "testing"]
+            for part in path_parts[:-1]:  # Check all directories, not the filename
+                if part.lower() in test_dir_patterns:
                     return True
+            
+            # ADDITIONAL: Exclude test files (files starting with test_ or ending with _test.py)
+            if file_name.startswith("test_") or file_name.endswith("_test.py"):
+                return True
+            
+            # ADDITIONAL: Exclude docs and examples directories
+            if "docs" in path_parts or "examples" in path_parts:
+                return True
+            
             return False
         
         original_count = len(files_to_index)
@@ -123,90 +144,7 @@ class SemanticSearch:
         excluded_count = original_count - len(files_to_index)
 
         print(f"[SemanticSearch] After filtering: {len(files_to_index)} files to index ({excluded_count} excluded)")
-
-        if len(files_to_index) == 0:
-            print(f"[SemanticSearch] WARNING: No files to index after filtering!")
-            return {
-                "indexed_files": 0,
-                "total_chunks": 0,
-                "collection_name": self.collection_name
-            }
-
-        documents = []
-        metadatas = []
-        ids = []
-        failed_files = 0
-
-        for file_path in files_to_index:
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                # Skip empty files
-                if not content.strip():
-                    continue
-
-                # Chunk file
-                chunks = self._chunk_text(content, self.max_chunk_size)
-                for idx, chunk in enumerate(chunks):
-                    relative_path = str(file_path.relative_to(repo_path))
-                    doc_id = f"{relative_path}::{idx}"
-
-                    documents.append(chunk)
-                    metadatas.append({
-                        "file_path": relative_path,
-                        "chunk_index": idx,
-                        "total_chunks": len(chunks),
-                        "file_type": file_path.suffix
-                    })
-                    ids.append(doc_id)
-            except Exception as e:
-                failed_files += 1
-                if failed_files <= 5:  # Only print first 5 errors
-                    print(f"Warning: Could not index {file_path}: {e}")
-                continue
-
-        if failed_files > 5:
-            print(f"Warning: Failed to index {failed_files} total files")
-
-        print(f"[SemanticSearch] Created {len(documents)} chunks from {len(files_to_index)} files")
-
-        if len(documents) == 0:
-            print(f"[SemanticSearch] WARNING: No chunks created!")
-            return {
-                "indexed_files": 0,
-                "total_chunks": 0,
-                "collection_name": self.collection_name
-            }
-
-        # Batch embed
-        for i in range(0, len(documents), batch_size):
-            batch_docs = documents[i:i + batch_size]
-            batch_metas = metadatas[i:i + batch_size]
-            batch_ids = ids[i:i + batch_size]
-
-            embeddings = self.embedder.encode(
-                batch_docs,
-                normalize_embeddings=True,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-                batch_size=batch_size,
-            ).tolist()
-            
-            self.collection.add(
-                documents=batch_docs, 
-                metadatas=batch_metas, 
-                ids=batch_ids, 
-                embeddings=embeddings
-            )
-            
-            print(f"[SemanticSearch] Indexed batch {i//batch_size + 1}/{(len(documents)-1)//batch_size + 1}")
-
-        return {
-            "indexed_files": len(files_to_index),
-            "total_chunks": len(documents),
-            "collection_name": self.collection_name
-        }
+        
     def search(self, query: str, n_results: int = 10, filter_metadata: Optional[dict] = None, use_reranker: bool = True) -> list[dict]:
         """Search with optional reranking."""
         # Generate query embedding
