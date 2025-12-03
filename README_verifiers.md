@@ -3,15 +3,14 @@
 1. Install dependencies
 
 ```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 ```
 
 2. Clone some repos from the SWE-bench dataset
 
 ```bash
-python scripts/clone_repos.py --output-dir ./swebench_repos \
-  --dataset princeton-nlp/SWE-bench_Lite \
-  --max-instances 1
+uv run scripts/clone_repos.py --output-dir ./swebench_repos --dataset princeton-nlp/SWE-bench_Lite --max-workers 10
 ```
 
 3. Run `vllm` and serve `Qwen3-8B`
