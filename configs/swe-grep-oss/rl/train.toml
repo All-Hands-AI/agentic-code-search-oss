@@ -1,7 +1,7 @@
 max_steps = 150
 
 [model]
-name = "willcb/Qwen3-4B"
+name = "willcb/Qwen3-8B"
 
 [model.ac]
 freq = 1

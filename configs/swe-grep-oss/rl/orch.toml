@@ -8,7 +8,7 @@ mask_truncated_completions = false
 project = "swe-grep-oss"
 
 [model]
-name = "willcb/Qwen3-4B"
+name = "willcb/Qwen3-8B"
 
 [[env]]
 id = "swe-grep-oss-env"
